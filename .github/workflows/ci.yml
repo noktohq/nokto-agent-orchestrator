@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Lint, format, typecheck, tester, bygg
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Installer avhengigheter (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Formatteringssjekk
+        run: pnpm run format:check
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Tester
+        run: pnpm run test
+        env:
+          # Ekte, betalte kall til claude/codex-CLI kjøres ALDRI i CI.
+          RUN_LIVE_PROVIDER_TESTS: '0'
+
+      - name: Bygg
+        run: pnpm run build
+
+  security:
+    name: Sårbarhetssjekk og hemmelighetsskanning
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # gitleaks-action kaller GET /pulls/{number}/commits ved pull_request-events.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Installer avhengigheter (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Dependency audit (produksjonsavhengigheter — feiler hardt)
+        run: pnpm audit --prod --audit-level=high
+
+      - name: Hemmelighetsskanning (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

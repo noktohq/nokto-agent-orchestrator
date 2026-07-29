@@ -1,0 +1,7 @@
+node_modules/
+dist/
+coverage/
+.state/
+.worktrees/
+audit/
+pnpm-lock.yaml

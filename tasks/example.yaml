@@ -1,0 +1,43 @@
+# Eksempel-oppgavekontrakt. Kopier og tilpass for en reell oppgave.
+# Kjør: nokto-agent run --task tasks/example.yaml
+# (eller under utvikling: pnpm run cli -- run --task tasks/example.yaml)
+
+id: example-add-usage-docs
+title: 'Legg til et brukseksempel i prosjektets README'
+goal: >
+  Legg til en kort "## Hurtigeksempel"-seksjon i README.md som viser hvordan
+  man kjører "nokto-agent run --task tasks/example.yaml".
+
+scope:
+  description: 'Kun dokumentasjon.'
+  allowedPaths:
+    - 'README.md'
+  disallowedPaths:
+    - 'src/**'
+
+acceptanceCriteria:
+  - "README.md inneholder en '## Hurtigeksempel'-seksjon"
+  - "Seksjonen viser en konkret, kjørbar 'nokto-agent run'-kommando"
+  - 'Ingen andre filer er endret'
+
+testRequirements:
+  commands:
+    - 'pnpm run lint'
+    - 'pnpm run typecheck'
+  mustPass: true
+
+constraints:
+  maxRetries: 1
+  timeoutMinutes: 15
+  allowedImplementers:
+    - codex
+    - claude
+
+git:
+  baseBranch: main
+  branchPrefix: 'agent/'
+
+metadata:
+  createdBy: 'nokto-agent-orchestrator eksempel'
+  labels:
+    - documentation
