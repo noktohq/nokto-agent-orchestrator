@@ -1,3 +1,5 @@
+[🇬🇧 English](./README.en.md)
+
 # nokto-agent-orchestrator
 
 Orkestrerer Claude Code og OpenAI Codex i en kontrollert leveranseflyt for kodeendringer via pull request.

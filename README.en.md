@@ -1,3 +1,5 @@
+[🇳🇴 Norsk](./README.md)
+
 # nokto-agent-orchestrator
 
 Orchestrates Claude Code and OpenAI Codex in a controlled delivery workflow for code changes submitted through pull requests.
