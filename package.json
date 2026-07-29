@@ -17,6 +17,7 @@
     "nokto-agent": "./dist/cli.js"
   },
   "scripts": {
+    "prepare": "tsc -p tsconfig.build.json",
     "build": "tsc -p tsconfig.build.json",
     "lint": "eslint .",
     "format:check": "prettier --check .",
