@@ -55,10 +55,20 @@ cp .env.example .env   # alt har trygge standardverdier
 pnpm run build
 ```
 
-Repoet er offentlig på GitHub. `package.json` har `"private": true` — det er et npm-flagg som kun hindrer utilsiktet `npm publish`, ikke offentlig lesetilgang på GitHub. Installer direkte fra git:
+Repoet er offentlig på GitHub. `package.json` har `"private": true` — det er et npm-flagg som kun hindrer utilsiktet `npm publish`, ikke offentlig lesetilgang på GitHub. Installer direkte fra git med npm:
+
+```bash
+npm install github:noktohq/nokto-agent-orchestrator
+```
+
+`prepare`-scriptet bygger pakken automatisk ved installasjon. Med pnpm må bygg-scriptet for git-avhengigheter godkjennes eksplisitt (sikkerhetstiltak i pnpm, ikke noe pakken kan styre selv):
 
 ```bash
 pnpm add github:noktohq/nokto-agent-orchestrator
+# legg så til i pnpm-workspace.yaml:
+#   onlyBuiltDependencies:
+#     - nokto-agent-orchestrator
+pnpm approve-builds
 ```
 
 ## Bruk
