@@ -86,11 +86,11 @@ pytest
 
 ## Krav
 
-* Node.js 20 eller nyere
-* pnpm 9
-* [`claude` CLI](https://docs.claude.com/claude-code), installert og innlogget for planlegging og kodegjennomgang
-* [`codex` CLI](https://developers.openai.com/codex), installert for implementering og sekundær kontroll
-* `GITHUB_TOKEN` dersom orkestratoren skal opprette pull requests automatisk
+- Node.js 20 eller nyere
+- pnpm 9
+- [`claude` CLI](https://docs.claude.com/claude-code), installert og innlogget for planlegging og kodegjennomgang
+- [`codex` CLI](https://developers.openai.com/codex), installert for implementering og sekundær kontroll
+- `GITHUB_TOKEN` dersom orkestratoren skal opprette pull requests automatisk
 
 Codex er valgfritt. Claude kan brukes som eneste implementerer ved å angi:
 
@@ -268,9 +268,9 @@ Hvert kall til `claude -p` og `codex exec` er et reelt kall som kan medføre kos
 
 Følgende innstillinger begrenser ressursbruk:
 
-* `AGENT_CLAUDE_MAX_BUDGET_USD` begrenser kostnaden per Claude-kall
-* `constraints.maxRetries` begrenser antall implementeringsforsøk
-* `constraints.timeoutMinutes` begrenser kjøretiden per oppgave
+- `AGENT_CLAUDE_MAX_BUDGET_USD` begrenser kostnaden per Claude-kall
+- `constraints.maxRetries` begrenser antall implementeringsforsøk
+- `constraints.timeoutMinutes` begrenser kjøretiden per oppgave
 
 Verdien `total_cost_usd`, rapportert av Claude CLI, registreres for hvert kall.
 
@@ -278,12 +278,12 @@ Verdien `total_cost_usd`, rapportert av Claude CLI, registreres for hvert kall.
 
 Se [RUNBOOK.md](RUNBOOK.md) for:
 
-* helsesjekk
-* vanlige feil
-* feilsøking
-* kansellering
-* opprydding
-* hendelseshåndtering
+- helsesjekk
+- vanlige feil
+- feilsøking
+- kansellering
+- opprydding
+- hendelseshåndtering
 
 ## Lisens
 

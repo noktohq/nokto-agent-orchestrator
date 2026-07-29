@@ -46,18 +46,18 @@ All events are stored in an append-only JSONL audit log. Secrets are redacted be
 
 ## Security
 
-| Control                                       | Protection                                                                                                             |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Argument-based process execution without `shell: true` | Prevents command injection structurally, without relying on text sanitization                                 |
-| Binary allowlist                              | Restricts which tools agents can execute                                                                               |
-| Git subcommand rules                          | Blocks destructive or high-risk Git operations                                                                         |
-| Force-push blocking                           | Rejects `--force` and `--force-with-lease`                                                                              |
-| Main branch protection                        | Prevents direct pushes to `main`; changes are delivered only through pull requests                                     |
-| Worktree requirement                          | Rejects mutating Git operations outside an isolated worktree                                                           |
-| Secret scanning                               | Scans plans and diffs and blocks pull-request creation when secrets are detected                                       |
-| Audit-log redaction                           | Removes secrets before events are stored                                                                                |
-| Sandbox hard block                            | Rejects the Codex `danger-full-access` configuration during loading, regardless of environment variables               |
-| Runtime environment verification              | `doctor` checks the actual binaries and never assumes that a provider or dependency is available                        |
+| Control                                                | Protection                                                                                               |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| Argument-based process execution without `shell: true` | Prevents command injection structurally, without relying on text sanitization                            |
+| Binary allowlist                                       | Restricts which tools agents can execute                                                                 |
+| Git subcommand rules                                   | Blocks destructive or high-risk Git operations                                                           |
+| Force-push blocking                                    | Rejects `--force` and `--force-with-lease`                                                               |
+| Main branch protection                                 | Prevents direct pushes to `main`; changes are delivered only through pull requests                       |
+| Worktree requirement                                   | Rejects mutating Git operations outside an isolated worktree                                             |
+| Secret scanning                                        | Scans plans and diffs and blocks pull-request creation when secrets are detected                         |
+| Audit-log redaction                                    | Removes secrets before events are stored                                                                 |
+| Sandbox hard block                                     | Rejects the Codex `danger-full-access` configuration during loading, regardless of environment variables |
+| Runtime environment verification                       | `doctor` checks the actual binaries and never assumes that a provider or dependency is available         |
 
 The following Git operations are always blocked:
 
@@ -86,11 +86,11 @@ pytest
 
 ## Requirements
 
-* Node.js 20 or later
-* pnpm 9
-* [`claude` CLI](https://docs.claude.com/claude-code), installed and authenticated for planning and code review
-* [`codex` CLI](https://developers.openai.com/codex), installed for implementation and secondary review
-* `GITHUB_TOKEN` if the orchestrator should create pull requests automatically
+- Node.js 20 or later
+- pnpm 9
+- [`claude` CLI](https://docs.claude.com/claude-code), installed and authenticated for planning and code review
+- [`codex` CLI](https://developers.openai.com/codex), installed for implementation and secondary review
+- `GITHUB_TOKEN` if the orchestrator should create pull requests automatically
 
 Codex is optional. Claude can be used as the only implementer by specifying:
 
@@ -167,18 +167,18 @@ nokto-agent verify --task <file> --worktree <dir>
 
 The commands are used as follows:
 
-| Command                 | Purpose                                                                                       |
-| ----------------------- | --------------------------------------------------------------------------------------------- |
-| `doctor`                | Checks which providers and binaries are available                                             |
-| `plan`                  | Creates an implementation plan without modifying files                                        |
-| `dry-run`               | Plans, validates, and creates a worktree without implementation or pull-request creation      |
-| `run`                   | Runs the complete delivery workflow                                                           |
-| `status`                | Displays all stored tasks                                                                     |
-| `status --task-id <id>` | Displays the complete history of one task                                                     |
-| `resume`                | Resumes an interrupted task                                                                   |
-| `cancel`                | Cancels an active task                                                                         |
-| `review`                | Performs a standalone code review                                                             |
-| `verify`                | Performs standalone verification                                                              |
+| Command                 | Purpose                                                                                  |
+| ----------------------- | ---------------------------------------------------------------------------------------- |
+| `doctor`                | Checks which providers and binaries are available                                        |
+| `plan`                  | Creates an implementation plan without modifying files                                   |
+| `dry-run`               | Plans, validates, and creates a worktree without implementation or pull-request creation |
+| `run`                   | Runs the complete delivery workflow                                                      |
+| `status`                | Displays all stored tasks                                                                |
+| `status --task-id <id>` | Displays the complete history of one task                                                |
+| `resume`                | Resumes an interrupted task                                                              |
+| `cancel`                | Cancels an active task                                                                   |
+| `review`                | Performs a standalone code review                                                        |
+| `verify`                | Performs standalone verification                                                         |
 
 Run the CLI directly from the source code during development:
 
@@ -218,17 +218,17 @@ Tasks are defined as YAML or JSON files and validated against a strict Zod schem
 
 See `tasks/example.yaml` for a complete example.
 
-| Field                              | Purpose                                                                 |
-| ---------------------------------- | ----------------------------------------------------------------------- |
-| `scope.allowedPaths`               | Glob patterns for files and directories agents are permitted to modify |
-| `scope.disallowedPaths`            | Glob patterns for files and directories that are always blocked        |
-| `acceptanceCriteria`               | Requirements used to evaluate the implementation plan, review, and result |
-| `testRequirements.commands`        | Commands executed through the allowlist during verification            |
-| `constraints.maxRetries`           | Maximum number of correction attempts                                  |
-| `constraints.timeoutMinutes`       | Maximum runtime for the task                                            |
-| `constraints.allowedImplementers`  | Implementation agents that may be used                                 |
-| `git.baseBranch`                   | Branch from which the worktree is created                              |
-| `git.branchPrefix`                 | Prefix used for task branches                                           |
+| Field                             | Purpose                                                                   |
+| --------------------------------- | ------------------------------------------------------------------------- |
+| `scope.allowedPaths`              | Glob patterns for files and directories agents are permitted to modify    |
+| `scope.disallowedPaths`           | Glob patterns for files and directories that are always blocked           |
+| `acceptanceCriteria`              | Requirements used to evaluate the implementation plan, review, and result |
+| `testRequirements.commands`       | Commands executed through the allowlist during verification               |
+| `constraints.maxRetries`          | Maximum number of correction attempts                                     |
+| `constraints.timeoutMinutes`      | Maximum runtime for the task                                              |
+| `constraints.allowedImplementers` | Implementation agents that may be used                                    |
+| `git.baseBranch`                  | Branch from which the worktree is created                                 |
+| `git.branchPrefix`                | Prefix used for task branches                                             |
 
 Plans and file changes outside the permitted scope are rejected.
 
@@ -268,9 +268,9 @@ Every call to `claude -p` and `codex exec` is a real invocation that may incur c
 
 The following settings limit resource usage:
 
-* `AGENT_CLAUDE_MAX_BUDGET_USD` limits the cost per Claude invocation
-* `constraints.maxRetries` limits the number of implementation attempts
-* `constraints.timeoutMinutes` limits the runtime of each task
+- `AGENT_CLAUDE_MAX_BUDGET_USD` limits the cost per Claude invocation
+- `constraints.maxRetries` limits the number of implementation attempts
+- `constraints.timeoutMinutes` limits the runtime of each task
 
 The `total_cost_usd` value reported by Claude CLI is recorded for each invocation.
 
@@ -278,12 +278,12 @@ The `total_cost_usd` value reported by Claude CLI is recorded for each invocatio
 
 See [RUNBOOK.md](RUNBOOK.md) for:
 
-* health checks
-* common failures
-* troubleshooting
-* cancellation
-* cleanup
-* incident handling
+- health checks
+- common failures
+- troubleshooting
+- cancellation
+- cleanup
+- incident handling
 
 ## License
 
