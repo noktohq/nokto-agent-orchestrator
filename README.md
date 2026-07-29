@@ -1,75 +1,75 @@
-[🇬🇧 English](./README.en.md)
+[🇳🇴 Norsk](./README.no.md)
 
 # nokto-agent-orchestrator
 
-Orkestrerer Claude Code og OpenAI Codex i en kontrollert leveranseflyt for kodeendringer via pull request.
+Orchestrates Claude Code and OpenAI Codex in a controlled delivery workflow for code changes submitted through pull requests.
 
-Hver oppgave planlegges, valideres, implementeres i en isolert Git-worktree, gjennomgås uavhengig og verifiseres mot oppgavens egne testkommandoer. Endringer merges aldri automatisk.
+Each task is planned, validated, implemented in an isolated Git worktree, reviewed independently, and verified against the task's own test commands. Changes are never merged automatically.
 
-Løsningen er bygget og brukt i produksjon av [Nokto](https://nokto.no). Manglende leverandører rapporteres som utilgjengelige, feilende tester stopper kjøringen, og modelloutput som ikke kan parses, behandles som feil.
+The system is built and used in production by [Nokto](https://nokto.no). Missing providers are reported as unavailable, failing tests stop the run, and model output that cannot be parsed is treated as an error.
 
-## Arbeidsflyt
+## Workflow
 
-1. **Planlegging**
-   Claude utarbeider en implementeringsplan med kun lesetilgang og uten å endre filer.
+1. **Planning**
+   Claude creates an implementation plan with read-only access and without modifying files.
 
-2. **Validering**
-   Planen kontrolleres med statiske sjekker for tillatte filstier, hardblokkerte områder og hemmeligheter. Den kan i tillegg vurderes av en språkmodell mot egendefinerte kvalitetsprofiler via `AGENT_PROFILE_FILES`.
+2. **Validation**
+   The plan is checked using static controls for allowed paths, hard-blocked areas, and secrets. It can also be evaluated by a language model against custom quality profiles through `AGENT_PROFILE_FILES`.
 
-3. **Isolering**
-   Det opprettes en separat Git-worktree fra en ny branch med navneformatet `agent/<id>-<forsøk>`. Agentene arbeider aldri direkte i hovedarbeidskopien.
+3. **Isolation**
+   A separate Git worktree is created from a new branch using the naming format `agent/<id>-<attempt>`. Agents never work directly in the main working copy.
 
-4. **Implementering**
-   Codex er primær implementerer, med Claude som fallback. Tillatte implementeringsagenter styres av `allowedImplementers` i oppgavekontrakten.
+4. **Implementation**
+   Codex is the primary implementer, with Claude as the fallback. Permitted implementation agents are controlled by `allowedImplementers` in the task contract.
 
-5. **Kodegjennomgang**
-   Claude gjennomgår diffen uavhengig og får kun tilgang til selve endringen, ikke implementererens egen oppsummering.
+5. **Code review**
+   Claude reviews the diff independently and receives access only to the change itself, not the implementer's own summary.
 
-6. **Sekundær kontroll**
-   Codex gjennomfører en ekstra kontroll i en skrivebeskyttet sandbox når Claude har implementert endringen, eller når den primære gjennomgangen har avdekket vesentlige funn.
+6. **Secondary review**
+   Codex performs an additional review in a read-only sandbox when Claude implemented the change, or when the primary review identified material findings.
 
-7. **Verifisering**
-   Kommandoene i `testRequirements.commands` kjøres i worktreet gjennom en eksplisitt kommando-allowlist.
+7. **Verification**
+   The commands in `testRequirements.commands` are executed in the worktree through an explicit command allowlist.
 
-8. **Korrigering**
-   Verifiseringsfeil og gjennomgangsfunn sendes tilbake til implementereren som konkrete korrigeringspunkter.
+8. **Correction**
+   Verification failures and review findings are returned to the implementer as specific correction items.
 
-9. **Ny gjennomgang og verifisering**
-   Steg 4–7 gjentas etter korrigering. Antall nye forsøk begrenses av `maxRetries`.
+9. **Re-review and verification**
+   Steps 4–7 are repeated after corrections. The number of additional attempts is limited by `maxRetries`.
 
 10. **Pull request**
-    Diffen hemmelighetsskannes, pushes og åpnes som pull request med en full rapport som inkluderer implementeringsplan, gjennomgangsfunn og verifiseringsresultater. Endringen må merges av et menneske.
+    The diff is scanned for secrets, pushed, and opened as a pull request with a complete report containing the implementation plan, review findings, and verification results. The change must be merged by a human.
 
-Tilstanden lagres atomisk etter hvert steg. En avbrutt kjøring kan derfor gjenopptas fra nøyaktig siste fullførte steg.
+State is stored atomically after each step. An interrupted run can therefore resume from the exact last completed step.
 
-Alle hendelser lagres i en append-only JSONL-auditlogg. Hemmeligheter redigeres før de skrives til loggen.
+All events are stored in an append-only JSONL audit log. Secrets are redacted before they are written to the log.
 
-## Sikkerhet
+## Security
 
-| Kontroll                                      | Beskyttelse                                                                                                     |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Argv-basert prosesskjøring uten `shell: true` | Hindrer kommandoinjeksjon strukturelt, uten å være avhengig av tekstsanitering                                  |
-| Binær-allowlist                               | Begrenser hvilke verktøy agentene kan kjøre                                                                     |
-| Git-subkommandoregler                         | Blokkerer destruktive eller risikable Git-operasjoner                                                           |
-| Force-push-blokkering                         | Nekter `--force` og `--force-with-lease`                                                                        |
-| Beskyttelse av hovedbranch                    | Hindrer direkte push til `main`; endringer leveres kun via pull request                                         |
-| Worktree-krav                                 | Nekter muterende Git-operasjoner utenfor en isolert worktree                                                    |
-| Hemmelighetsskanning                          | Skanner planer og differ og blokkerer opprettelse av pull request ved treff                                     |
-| Redigering av auditlogger                     | Fjerner hemmeligheter før hendelser lagres                                                                      |
-| Sandbox-hardblokkering                        | Avviser Codex-konfigurasjonen `danger-full-access` ved innlasting, uavhengig av miljøvariabler                  |
-| Reell miljøkontroll                           | `doctor` kontrollerer de faktiske binærfilene og antar aldri at en leverandør eller avhengighet er tilgjengelig |
+| Control                                                | Protection                                                                                               |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| Argument-based process execution without `shell: true` | Prevents command injection structurally, without relying on text sanitization                            |
+| Binary allowlist                                       | Restricts which tools agents can execute                                                                 |
+| Git subcommand rules                                   | Blocks destructive or high-risk Git operations                                                           |
+| Force-push blocking                                    | Rejects `--force` and `--force-with-lease`                                                               |
+| Main branch protection                                 | Prevents direct pushes to `main`; changes are delivered only through pull requests                       |
+| Worktree requirement                                   | Rejects mutating Git operations outside an isolated worktree                                             |
+| Secret scanning                                        | Scans plans and diffs and blocks pull-request creation when secrets are detected                         |
+| Audit-log redaction                                    | Removes secrets before events are stored                                                                 |
+| Sandbox hard block                                     | Rejects the Codex `danger-full-access` configuration during loading, regardless of environment variables |
+| Runtime environment verification                       | `doctor` checks the actual binaries and never assumes that a provider or dependency is available         |
 
-Følgende Git-operasjoner er alltid blokkert:
+The following Git operations are always blocked:
 
 ```text
 git reset
 git clean
 git filter-branch
 git filter-repo
-git checkout -- <sti>
+git checkout -- <path>
 ```
 
-Tillatte binærfiler inkluderer:
+Allowed binaries include:
 
 ```text
 git
@@ -84,32 +84,32 @@ python3
 pytest
 ```
 
-## Krav
+## Requirements
 
-- Node.js 20 eller nyere
+- Node.js 20 or later
 - pnpm 9
-- [`claude` CLI](https://docs.claude.com/claude-code), installert og innlogget for planlegging og kodegjennomgang
-- [`codex` CLI](https://developers.openai.com/codex), installert for implementering og sekundær kontroll
-- `GITHUB_TOKEN` dersom orkestratoren skal opprette pull requests automatisk
+- [`claude` CLI](https://docs.claude.com/claude-code), installed and authenticated for planning and code review
+- [`codex` CLI](https://developers.openai.com/codex), installed for implementation and secondary review
+- `GITHUB_TOKEN` if the orchestrator should create pull requests automatically
 
-Codex er valgfritt. Claude kan brukes som eneste implementerer ved å angi:
+Codex is optional. Claude can be used as the only implementer by specifying:
 
 ```yaml
 allowedImplementers:
   - claude
 ```
 
-Kontroller hvilke leverandører og binærfiler som faktisk er tilgjengelige i miljøet:
+Check which providers and binaries are actually available in the environment:
 
 ```bash
 nokto-agent doctor
 ```
 
-`doctor` undersøker de reelle binærfilene og rapporterer manglende avhengigheter uten å anta tilgjengelighet.
+`doctor` checks the real binaries and reports missing dependencies without assuming availability.
 
-## Installasjon
+## Installation
 
-### Lokal utvikling
+### Local development
 
 ```bash
 pnpm install
@@ -117,38 +117,38 @@ cp .env.example .env
 pnpm run build
 ```
 
-`.env.example` inneholder trygge standardverdier.
+`.env.example` contains safe default values.
 
-### Installasjon fra GitHub med npm
+### Installation from GitHub with npm
 
 ```bash
 npm install github:noktohq/nokto-agent-orchestrator
 ```
 
-`prepare`-scriptet bygger pakken automatisk ved installasjon direkte fra Git.
+The `prepare` script builds the package automatically when installed directly from Git.
 
-### Installasjon fra GitHub med pnpm
+### Installation from GitHub with pnpm
 
 ```bash
 pnpm add github:noktohq/nokto-agent-orchestrator
 ```
 
-pnpm blokkerer byggescript for Git-avhengigheter som standard. Dette er et sikkerhetstiltak i pnpm og må godkjennes eksplisitt.
+pnpm blocks build scripts for Git dependencies by default. This is a pnpm security measure and must be approved explicitly.
 
-Legg pakken til i `pnpm-workspace.yaml`:
+Add the package to `pnpm-workspace.yaml`:
 
 ```yaml
 onlyBuiltDependencies:
   - nokto-agent-orchestrator
 ```
 
-Godkjenn deretter byggescriptet:
+Then approve the build script:
 
 ```bash
 pnpm approve-builds
 ```
 
-Repoet er offentlig på GitHub. Innstillingen `"private": true` i `package.json` hindrer kun utilsiktet publisering til npm og påvirker ikke repoets synlighet.
+The repository is public on GitHub. The `"private": true` setting in `package.json` only prevents accidental publication to npm and does not affect the repository's visibility.
 
 ## CLI
 
@@ -161,34 +161,34 @@ nokto-agent status
 nokto-agent status --task-id <id>
 nokto-agent resume --task-id <id>
 nokto-agent cancel --task-id <id>
-nokto-agent review --task <fil> --worktree <dir>
-nokto-agent verify --task <fil> --worktree <dir>
+nokto-agent review --task <file> --worktree <dir>
+nokto-agent verify --task <file> --worktree <dir>
 ```
 
-Kommandoene brukes slik:
+The commands are used as follows:
 
-| Kommando                | Formål                                                                             |
-| ----------------------- | ---------------------------------------------------------------------------------- |
-| `doctor`                | Kontrollerer hvilke leverandører og binærfiler som er tilgjengelige                |
-| `plan`                  | Oppretter en implementeringsplan uten filendringer                                 |
-| `dry-run`               | Planlegger, validerer og oppretter worktree uten implementering eller pull request |
-| `run`                   | Kjører hele leveranseflyten                                                        |
-| `status`                | Viser alle lagrede oppgaver                                                        |
-| `status --task-id <id>` | Viser full historikk for én oppgave                                                |
-| `resume`                | Gjenopptar en avbrutt oppgave                                                      |
-| `cancel`                | Kansellerer en pågående oppgave                                                    |
-| `review`                | Utfører en frittstående kodegjennomgang                                            |
-| `verify`                | Utfører en frittstående verifisering                                               |
+| Command                 | Purpose                                                                                  |
+| ----------------------- | ---------------------------------------------------------------------------------------- |
+| `doctor`                | Checks which providers and binaries are available                                        |
+| `plan`                  | Creates an implementation plan without modifying files                                   |
+| `dry-run`               | Plans, validates, and creates a worktree without implementation or pull-request creation |
+| `run`                   | Runs the complete delivery workflow                                                      |
+| `status`                | Displays all stored tasks                                                                |
+| `status --task-id <id>` | Displays the complete history of one task                                                |
+| `resume`                | Resumes an interrupted task                                                              |
+| `cancel`                | Cancels an active task                                                                   |
+| `review`                | Performs a standalone code review                                                        |
+| `verify`                | Performs standalone verification                                                         |
 
-Kjør CLI direkte fra kildekoden under utvikling:
+Run the CLI directly from the source code during development:
 
 ```bash
-pnpm run cli -- <kommando>
+pnpm run cli -- <command>
 ```
 
-## MCP-server
+## MCP server
 
-Følgende sju operasjoner eksponeres som MCP-verktøy over stdio:
+The following seven operations are exposed as MCP tools over stdio:
 
 ```text
 agent_doctor
@@ -200,41 +200,41 @@ agent_resume_task
 agent_cancel_task
 ```
 
-Start den bygde MCP-serveren med:
+Start the built MCP server with:
 
 ```bash
 node dist/mcp/server.js
 ```
 
-Start MCP-serveren direkte fra kildekoden under utvikling:
+Start the MCP server directly from the source code during development:
 
 ```bash
 pnpm run mcp
 ```
 
-## Oppgavekontrakt
+## Task contract
 
-Oppgaver defineres som YAML- eller JSON-filer og valideres mot et strengt Zod-skjema i `src/types.ts`.
+Tasks are defined as YAML or JSON files and validated against a strict Zod schema in `src/types.ts`.
 
-Se `tasks/example.yaml` for et komplett eksempel.
+See `tasks/example.yaml` for a complete example.
 
-| Felt                              | Formål                                                                  |
-| --------------------------------- | ----------------------------------------------------------------------- |
-| `scope.allowedPaths`              | Glob-mønstre for filer og kataloger agentene har tillatelse til å endre |
-| `scope.disallowedPaths`           | Glob-mønstre for filer og kataloger som alltid er blokkert              |
-| `acceptanceCriteria`              | Krav implementeringsplanen, gjennomgangen og resultatet vurderes mot    |
-| `testRequirements.commands`       | Kommandoer som kjøres gjennom allowlisten under verifisering            |
-| `constraints.maxRetries`          | Maksimalt antall korrigeringsforsøk                                     |
-| `constraints.timeoutMinutes`      | Maksimal kjøretid for oppgaven                                          |
-| `constraints.allowedImplementers` | Implementeringsagenter som kan brukes                                   |
-| `git.baseBranch`                  | Branchen worktreet opprettes fra                                        |
-| `git.branchPrefix`                | Prefiks for oppgavebrancher                                             |
+| Field                             | Purpose                                                                   |
+| --------------------------------- | ------------------------------------------------------------------------- |
+| `scope.allowedPaths`              | Glob patterns for files and directories agents are permitted to modify    |
+| `scope.disallowedPaths`           | Glob patterns for files and directories that are always blocked           |
+| `acceptanceCriteria`              | Requirements used to evaluate the implementation plan, review, and result |
+| `testRequirements.commands`       | Commands executed through the allowlist during verification               |
+| `constraints.maxRetries`          | Maximum number of correction attempts                                     |
+| `constraints.timeoutMinutes`      | Maximum runtime for the task                                              |
+| `constraints.allowedImplementers` | Implementation agents that may be used                                    |
+| `git.baseBranch`                  | Branch from which the worktree is created                                 |
+| `git.branchPrefix`                | Prefix used for task branches                                             |
 
-Planer og filendringer som faller utenfor tillatt scope, avvises.
+Plans and file changes outside the permitted scope are rejected.
 
 ## Testing
 
-Kjør kontrollene separat:
+Run the checks separately:
 
 ```bash
 pnpm run lint
@@ -244,47 +244,47 @@ pnpm run test
 pnpm run build
 ```
 
-Kjør hele kontrollkjeden samlet:
+Run the complete validation chain:
 
 ```bash
 pnpm run lint && pnpm run format:check && pnpm run typecheck && pnpm run test && pnpm run build
 ```
 
-Prosjektet har 80 tester.
+The project has 80 tests.
 
-Testene for worktree-isolasjon og verifisering bruker ekte Git-repositorier i midlertidige kataloger, ikke mocks.
+The worktree-isolation and verification tests use real Git repositories in temporary directories, not mocks.
 
-Provider-adapterne testes med mocket prosesskjøring. Den ordinære testsuiten utfører derfor ingen betalte API-kall.
+Provider adapters are tested with mocked process execution. The standard test suite therefore performs no paid API calls.
 
-En reell integrasjonstest mot `claude -p` finnes bak eksplisitt aktivering:
+A real integration test against `claude -p` is available through explicit opt-in:
 
 ```bash
 RUN_LIVE_PROVIDER_TESTS=1
 ```
 
-## Kostnadskontroll
+## Cost control
 
-Hvert kall til `claude -p` og `codex exec` er et reelt kall som kan medføre kostnader.
+Every call to `claude -p` and `codex exec` is a real invocation that may incur costs.
 
-Følgende innstillinger begrenser ressursbruk:
+The following settings limit resource usage:
 
-- `AGENT_CLAUDE_MAX_BUDGET_USD` begrenser kostnaden per Claude-kall
-- `constraints.maxRetries` begrenser antall implementeringsforsøk
-- `constraints.timeoutMinutes` begrenser kjøretiden per oppgave
+- `AGENT_CLAUDE_MAX_BUDGET_USD` limits the cost per Claude invocation
+- `constraints.maxRetries` limits the number of implementation attempts
+- `constraints.timeoutMinutes` limits the runtime of each task
 
-Verdien `total_cost_usd`, rapportert av Claude CLI, registreres for hvert kall.
+The `total_cost_usd` value reported by Claude CLI is recorded for each invocation.
 
-## Drift
+## Operations
 
-Se [RUNBOOK.md](RUNBOOK.md) for:
+See [RUNBOOK.md](RUNBOOK.md) for:
 
-- helsesjekk
-- vanlige feil
-- feilsøking
-- kansellering
-- opprydding
-- hendelseshåndtering
+- health checks
+- common failures
+- troubleshooting
+- cancellation
+- cleanup
+- incident handling
 
-## Lisens
+## License
 
 MIT © 2026 Nokto — [nokto.no](https://nokto.no)
