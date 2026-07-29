@@ -1,0 +1,6 @@
+title = "nokto-agent-orchestrator gitleaks config"
+
+# Explicit config so CI does not silently fall back to an implicit
+# default — extend gitleaks' own default ruleset unchanged.
+[extend]
+useDefault = true
