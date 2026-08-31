@@ -31,7 +31,7 @@
     "@google/genai": "^2.19.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "commander": "^15.0.0",
-    "js-yaml": "^4.1.0",
+    "js-yaml": "^4.3.2",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -44,5 +44,11 @@
     "tsx": "^4.15.0",
     "typescript": "^5.4.5",
     "vitest": "^2.1.9"
+  },
+  "pnpm": {
+    "overrides": {
+      "fast-uri": ">=3.1.5",
+      "hono": ">=4.12.34"
+    }
   }
 }
