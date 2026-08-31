@@ -66,6 +66,10 @@ export interface OrchestratorConfig {
   codexSandbox: CodexSandboxMode;
   codexTimeoutSec: number;
 
+  geminiApiKey: string | undefined;
+  geminiModel: string;
+  geminiTimeoutSec: number;
+
   githubToken: string | undefined;
   githubApiBase: string;
   githubOwner: string | undefined;
@@ -78,7 +82,10 @@ let cached: OrchestratorConfig | null = null;
  * Laster og validerer konfigurasjon fra miljøvariabler.
  * Kaster ConfigError ved ugyldig verdi — kaller må stoppe prosessen.
  * Ingen modellnavn er hardkodet: AGENT_CLAUDE_MODEL / AGENT_CODEX_MODEL er
- * valgfrie. Utelates de, brukes leverandørens eget standardvalg.
+ * valgfrie. Utelates de, brukes leverandørens eget standardvalg. Unntaket er
+ * Gemini: API-et krever et eksplisitt modellnavn per kall, så GEMINI_MODEL har
+ * en dokumentert standardverdi som kan overstyres (eksakte modellnavn endres
+ * over tid).
  */
 export function loadConfig(): OrchestratorConfig {
   if (cached) return cached;
@@ -113,6 +120,10 @@ export function loadConfig(): OrchestratorConfig {
     codexModel: optionalEnv('AGENT_CODEX_MODEL'),
     codexSandbox: sandboxEnv('AGENT_CODEX_SANDBOX', 'workspace-write'),
     codexTimeoutSec: intEnv('AGENT_CODEX_TIMEOUT_SEC', 1800),
+
+    geminiApiKey: optionalEnv('GEMINI_API_KEY'),
+    geminiModel: optionalEnv('GEMINI_MODEL') ?? 'gemini-3.5-flash',
+    geminiTimeoutSec: intEnv('AGENT_GEMINI_TIMEOUT_SEC', 600),
 
     githubToken: optionalEnv('GITHUB_TOKEN'),
     githubApiBase: optionalEnv('GITHUB_API_BASE') ?? 'https://api.github.com',

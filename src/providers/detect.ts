@@ -34,9 +34,10 @@ async function probeVersion(
 
 /**
  * Sjekker faktisk tilgjengelighet av alle leverandører. Gjetter aldri —
- * kjører den ekte `--version`/`--help`-kommandoen og rapporterer nøyaktig
- * hva som ble funnet. En leverandør som mangler rapporteres som
- * available: false, aldri simulert som tilgjengelig.
+ * kjører den ekte `--version`/`--help`-kommandoen (eller, for API-baserte
+ * leverandører som Gemini, sjekker at nøkkelen faktisk er satt) og
+ * rapporterer nøyaktig hva som ble funnet. En leverandør som mangler
+ * rapporteres som available: false, aldri simulert som tilgjengelig.
  */
 export async function runDoctor(config: OrchestratorConfig): Promise<DoctorReport[]> {
   const reports: DoctorReport[] = [];
@@ -59,6 +60,19 @@ export async function runDoctor(config: OrchestratorConfig): Promise<DoctorRepor
     detail: codex.available
       ? `${config.codexBin} funnet — sandbox=${config.codexSandbox}`
       : `${config.codexBin} ikke tilgjengelig: ${codex.detail}. Implementeringsoppgaver kan ikke rutes til Codex før CLI-en er installert.`,
+  });
+
+  // Gemini er API-basert (ingen CLI å probe): tilgjengelighet = GEMINI_API_KEY
+  // er satt. Nøkkelverdien rapporteres aldri, og gyldigheten antas ikke — den
+  // verifiseres først ved et faktisk kall (runGemini feiler da synlig).
+  const geminiAvailable = config.geminiApiKey !== undefined;
+  reports.push({
+    provider: 'gemini',
+    available: geminiAvailable,
+    version: null,
+    detail: geminiAvailable
+      ? `GEMINI_API_KEY er satt — bruker modell ${config.geminiModel} via @google/genai. Nøkkelens gyldighet verifiseres først ved faktisk kall.`
+      : 'GEMINI_API_KEY er ikke satt. Gemini kan ikke brukes til kodegjennomgang/sekundær kontroll før nøkkelen finnes i miljøet.',
   });
 
   const gh = await probeVersion('gh', ['--version'], config.repoRoot);

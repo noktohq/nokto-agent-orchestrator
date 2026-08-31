@@ -32,18 +32,25 @@ function stubPlan(contract: TaskContract): TaskPlan {
 const program = new Command();
 program
   .name('nokto-agent')
-  .description('Nokto multi-agent-orkestrator — Claude Code + OpenAI Codex + GitHub')
+  .description(
+    'Nokto multi-agent-orkestrator — Claude Code + OpenAI Codex + Google Gemini + GitHub'
+  )
   .version('1.0.0');
 
 program
   .command('doctor')
-  .description('Sjekker faktisk tilgjengelighet av claude/codex/gh-CLI og GITHUB_TOKEN')
+  .description(
+    'Sjekker faktisk tilgjengelighet av claude/codex/gh-CLI, GEMINI_API_KEY og GITHUB_TOKEN'
+  )
   .action(async () => {
     const config = loadConfig();
     const report = await runDoctor(config);
     printJson(report);
-    const allCritical = report.some((r) => r.provider !== 'github' && r.available);
-    if (!allCritical) {
+    // Gemini teller ikke som implementerer — den kan kun brukes til gjennomgangsroller.
+    const implementerAvailable = report.some(
+      (r) => (r.provider === 'claude' || r.provider === 'codex') && r.available
+    );
+    if (!implementerAvailable) {
       process.stderr.write(
         'Advarsel: verken claude eller codex er tilgjengelig — implementering vil feile.\n'
       );

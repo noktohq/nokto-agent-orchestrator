@@ -30,6 +30,17 @@ export const taskContractSchema = z.object({
         .array(z.enum(['codex', 'claude']))
         .min(1)
         .default(['codex']),
+      // Gemini er bevisst IKKE en tillatt implementerer: provideren er API-basert
+      // uten CLI-sandbox og kan strukturelt sett aldri endre filer i et worktree.
+      // Den kan derimot brukes til gjennomgangsrollene under.
+      reviewers: z
+        .array(z.enum(['claude', 'gemini']))
+        .min(1)
+        .default(['claude', 'gemini']),
+      secondaryReviewers: z
+        .array(z.enum(['codex', 'gemini']))
+        .min(1)
+        .default(['codex', 'gemini']),
     })
     .default({}),
   git: z
@@ -64,8 +75,12 @@ export const taskPhaseSchema = z.enum([
 ]);
 export type TaskPhase = z.infer<typeof taskPhaseSchema>;
 
-export const providerNameSchema = z.enum(['claude', 'codex', 'github']);
+export const providerNameSchema = z.enum(['claude', 'codex', 'gemini', 'github']);
 export type ProviderName = z.infer<typeof providerNameSchema>;
+
+/** Leverandører som kan velges som primær/sekundær gjennomgang — avledet fra kontraktskjemaet. */
+export type PrimaryReviewerName = TaskContract['constraints']['reviewers'][number];
+export type SecondaryReviewerName = TaskContract['constraints']['secondaryReviewers'][number];
 
 export interface PlanStep {
   order: number;

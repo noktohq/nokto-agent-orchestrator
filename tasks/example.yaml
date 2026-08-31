@@ -32,6 +32,14 @@ constraints:
   allowedImplementers:
     - codex
     - claude
+  # Gjennomgangsleverandører i prioritert rekkefølge. Gemini (via GEMINI_API_KEY)
+  # brukes når den foretrukne CLI-en ikke er tilgjengelig.
+  reviewers:
+    - claude
+    - gemini
+  secondaryReviewers:
+    - codex
+    - gemini
 
 git:
   baseBranch: main

@@ -1,5 +1,7 @@
 import { runCodex } from '../providers/codex.js';
-import { diffAgainstBase, parseReviewResult } from './reviewer.js';
+import { runGemini } from '../providers/gemini.js';
+import { runDoctor } from '../providers/detect.js';
+import { diffAgainstBase, parseReviewResult, pickReviewer } from './reviewer.js';
 import type { OrchestratorConfig } from '../config.js';
 import type { ProviderName, ReviewResult, TaskContract, TaskPlan } from '../types.js';
 
@@ -10,7 +12,7 @@ const REVIEW_JSON_SCHEMA_HINT = `Svar KUN med gyldig JSON på nøyaktig denne fo
 }`;
 
 /**
- * Avgjør om Codex bør brukes som sekundær kontrollagent ("ved behov", steg 6).
+ * Avgjør om en sekundær kontrollagent (Codex/Gemini) bør brukes ("ved behov", steg 6).
  * Sekundær gjennomgang trigges når:
  *  - Codex faktisk var implementerende agent (Claude bør da kontrollere — men det
  *    dekkes allerede av reviewCode()), ELLER
@@ -56,10 +58,14 @@ function buildSecondaryReviewPrompt(contract: TaskContract, plan: TaskPlan, diff
 }
 
 /**
- * Codex som sekundær kontrollagent — steg 6 i arbeidsflyten. Kjøres alltid
- * med sandbox "read-only": sekundærgjennomgangen skal aldri kunne endre filer.
- * Returnerer null (ikke en falsk "approved") dersom Codex ikke er installert —
- * kalleren må håndtere det eksplisitt i stedet for å anta suksess.
+ * Sekundær kontrollagent — steg 6 i arbeidsflyten. Leverandøren velges fra
+ * contract.constraints.secondaryReviewers i prioritert rekkefølge (standard:
+ * Codex, deretter Gemini når Codex-CLI-en ikke er installert). Begge er reelt
+ * lesende: Codex kjøres alltid med sandbox "read-only", og Gemini kalles via
+ * API og mottar KUN diff-teksten — sekundærgjennomgangen skal aldri kunne
+ * endre filer. Returnerer null (ikke en falsk "approved") dersom ingen av de
+ * tillatte leverandørene er tilgjengelig — kalleren må håndtere det eksplisitt
+ * i stedet for å anta suksess.
  */
 export async function secondaryReviewCode(
   config: OrchestratorConfig,
@@ -67,10 +73,15 @@ export async function secondaryReviewCode(
   plan: TaskPlan,
   worktreePath: string
 ): Promise<ReviewResult | null> {
+  const doctor = await runDoctor(config);
+  const available = new Set(doctor.filter((d) => d.available).map((d) => d.provider));
+  const reviewer = pickReviewer(contract.constraints.secondaryReviewers, available);
+  if (!reviewer) return null;
+
   const diff = await diffAgainstBase(config, worktreePath, contract.git.baseBranch);
   if (diff.trim() === '') {
     return {
-      reviewer: 'codex',
+      reviewer,
       approved: false,
       findings: [
         {
@@ -83,7 +94,28 @@ export async function secondaryReviewCode(
     };
   }
 
-  const res = await runCodex(buildSecondaryReviewPrompt(contract, plan, diff), config, {
+  const prompt = buildSecondaryReviewPrompt(contract, plan, diff);
+
+  if (reviewer === 'gemini') {
+    const outcome = await runGemini(prompt, config, { jsonOutput: true });
+    if (!outcome.ok) {
+      return {
+        reviewer: 'gemini',
+        approved: false,
+        findings: [
+          {
+            severity: 'blocker',
+            file: null,
+            summary: `Sekundær Gemini-gjennomgang feilet: ${outcome.stderrTail || 'ukjent feil'}`,
+          },
+        ],
+        raw: outcome.resultText,
+      };
+    }
+    return parseReviewResult('gemini', outcome.resultText);
+  }
+
+  const res = await runCodex(prompt, config, {
     cwd: worktreePath,
     repoRoot: config.repoRoot,
     sandboxOverride: 'read-only',

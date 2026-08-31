@@ -31,6 +31,9 @@ function testConfig(): OrchestratorConfig {
     codexModel: undefined,
     codexSandbox: 'workspace-write',
     codexTimeoutSec: 120,
+    geminiApiKey: process.env.GEMINI_API_KEY,
+    geminiModel: 'gemini-3.5-flash',
+    geminiTimeoutSec: 120,
     githubToken: undefined,
     githubApiBase: 'https://api.github.com',
     githubOwner: undefined,
@@ -41,12 +44,21 @@ function testConfig(): OrchestratorConfig {
 describe('runDoctor (ekte probe, ingen mocking)', () => {
   it('rapporterer faktisk tilgjengelighet uten å simulere', async () => {
     const report = await runDoctor(testConfig());
-    expect(report).toHaveLength(3);
+    expect(report).toHaveLength(4);
     for (const r of report) {
-      expect(['claude', 'codex', 'github']).toContain(r.provider);
+      expect(['claude', 'codex', 'gemini', 'github']).toContain(r.provider);
       expect(typeof r.available).toBe('boolean');
       expect(typeof r.detail).toBe('string');
       expect(r.detail.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('gemini-rapporten reflekterer GEMINI_API_KEY uten å lekke nøkkelverdien', async () => {
+    const report = await runDoctor(testConfig());
+    const gemini = report.find((r) => r.provider === 'gemini');
+    expect(gemini?.available).toBe(process.env.GEMINI_API_KEY !== undefined);
+    if (process.env.GEMINI_API_KEY) {
+      expect(gemini?.detail).not.toContain(process.env.GEMINI_API_KEY);
     }
   });
 });
