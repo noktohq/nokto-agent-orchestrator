@@ -16,6 +16,11 @@ describe('scanForSecrets / redact', () => {
     ).toBe(true);
   });
 
+  it('finner Google API-nøkler (Gemini)', () => {
+    const hits = scanForSecrets('AIza' + 'C'.repeat(35));
+    expect(hits.some((h) => h.patternName === 'google-api-key')).toBe(true);
+  });
+
   it('finner generisk tildelt hemmelighet', () => {
     const hits = scanForSecrets('STRIPE_SECRET_KEY=sk_live_' + 'x'.repeat(20));
     expect(hits.some((h) => h.patternName === 'generic-assigned-secret')).toBe(true);

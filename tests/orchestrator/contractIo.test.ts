@@ -36,7 +36,56 @@ describe('loadTaskContract', () => {
     expect(contract.id).toBe('my-task');
     expect(contract.constraints.maxRetries).toBe(2);
     expect(contract.constraints.allowedImplementers).toEqual(['codex']);
+    expect(contract.constraints.reviewers).toEqual(['claude', 'gemini']);
+    expect(contract.constraints.secondaryReviewers).toEqual(['codex', 'gemini']);
     expect(contract.git.baseBranch).toBe('main');
+  });
+
+  it('avviser gemini som implementerer — provideren har ingen CLI-sandbox', () => {
+    const file = resolve(dir, 'gemini-implementer.yaml');
+    writeFileSync(
+      file,
+      [
+        'id: my-task',
+        'title: En tittel',
+        'goal: Et mål',
+        'scope:',
+        '  description: x',
+        '  allowedPaths: ["src/**"]',
+        'acceptanceCriteria: ["x"]',
+        'testRequirements:',
+        '  commands: ["pnpm run lint"]',
+        'constraints:',
+        '  allowedImplementers: ["gemini"]',
+      ].join('\n'),
+      'utf8'
+    );
+    expect(() => loadTaskContract(file)).toThrow(ContractParseError);
+  });
+
+  it('godtar gemini i gjennomgangsrollene', () => {
+    const file = resolve(dir, 'gemini-reviewer.yaml');
+    writeFileSync(
+      file,
+      [
+        'id: my-task',
+        'title: En tittel',
+        'goal: Et mål',
+        'scope:',
+        '  description: x',
+        '  allowedPaths: ["src/**"]',
+        'acceptanceCriteria: ["x"]',
+        'testRequirements:',
+        '  commands: ["pnpm run lint"]',
+        'constraints:',
+        '  reviewers: ["gemini"]',
+        '  secondaryReviewers: ["gemini"]',
+      ].join('\n'),
+      'utf8'
+    );
+    const contract = loadTaskContract(file);
+    expect(contract.constraints.reviewers).toEqual(['gemini']);
+    expect(contract.constraints.secondaryReviewers).toEqual(['gemini']);
   });
 
   it('kaster ContractParseError for en fil som ikke finnes', () => {

@@ -1,7 +1,9 @@
 import { runClaude } from '../providers/claude.js';
+import { runGemini } from '../providers/gemini.js';
+import { runDoctor } from '../providers/detect.js';
 import { runCommand } from '../providers/exec.js';
 import type { OrchestratorConfig } from '../config.js';
-import type { ReviewResult, TaskContract, TaskPlan } from '../types.js';
+import type { ProviderName, ReviewResult, TaskContract, TaskPlan } from '../types.js';
 
 const REVIEW_JSON_SCHEMA_HINT = `Svar KUN med gyldig JSON på nøyaktig denne formen, ingen annen tekst:
 {
@@ -52,7 +54,23 @@ function buildReviewPrompt(contract: TaskContract, plan: TaskPlan, diff: string)
     .join('\n');
 }
 
-export function parseReviewResult(reviewer: 'claude' | 'codex', resultText: string): ReviewResult {
+/**
+ * Velger første faktisk tilgjengelige gjennomgangsleverandør fra kontraktens
+ * prioriterte liste (samme mønster som allowedImplementers i implementer.ts).
+ * Returnerer null dersom ingen er tilgjengelig — kalleren må håndtere det
+ * eksplisitt i stedet for å anta at en leverandør finnes.
+ */
+export function pickReviewer<T extends ProviderName>(
+  allowed: readonly T[],
+  available: ReadonlySet<ProviderName>
+): T | null {
+  return allowed.find((r) => available.has(r)) ?? null;
+}
+
+export function parseReviewResult(
+  reviewer: Exclude<ProviderName, 'github'>,
+  resultText: string
+): ReviewResult {
   const jsonMatch = /\{[\s\S]*\}/.exec(resultText);
   if (!jsonMatch) {
     return {
@@ -102,10 +120,14 @@ export function parseReviewResult(reviewer: 'claude' | 'codex', resultText: stri
 }
 
 /**
- * Claude gjennomfører uavhengig kodegjennomgang av diffen produsert i worktreet
- * — steg 5 i arbeidsflyten. Kjøres med permission-mode "plan" (kun lesing,
- * ingen filendringer), og ser KUN på selve diffen — ikke implementerings-agentens
- * egen oppsummering — slik at gjennomgangen er reelt uavhengig.
+ * Uavhengig kodegjennomgang av diffen produsert i worktreet — steg 5 i
+ * arbeidsflyten. Gjennomgangsleverandøren velges fra
+ * contract.constraints.reviewers i prioritert rekkefølge (standard: Claude,
+ * deretter Gemini når Claude-CLI-en ikke er tilgjengelig). Begge er reelt
+ * lesende: Claude kjøres med permission-mode "plan" (ingen filendringer), og
+ * Gemini kalles via API og mottar KUN diff-teksten — den kan strukturelt sett
+ * aldri røre filer. Gjennomgangen ser KUN på selve diffen — ikke
+ * implementerings-agentens egen oppsummering — slik at den er reelt uavhengig.
  */
 export async function reviewCode(
   config: OrchestratorConfig,
@@ -113,10 +135,29 @@ export async function reviewCode(
   plan: TaskPlan,
   worktreePath: string
 ): Promise<ReviewResult> {
+  const doctor = await runDoctor(config);
+  const available = new Set(doctor.filter((d) => d.available).map((d) => d.provider));
+  const reviewer = pickReviewer(contract.constraints.reviewers, available);
+
+  if (!reviewer) {
+    return {
+      reviewer: contract.constraints.reviewers[0] ?? 'claude',
+      approved: false,
+      findings: [
+        {
+          severity: 'blocker',
+          file: null,
+          summary: `Ingen av de tillatte gjennomgangsleverandørene (${contract.constraints.reviewers.join(', ')}) er tilgjengelig. Kjør "doctor" for detaljer.`,
+        },
+      ],
+      raw: '',
+    };
+  }
+
   const diff = await diffAgainstBase(config, worktreePath, contract.git.baseBranch);
   if (diff.trim() === '') {
     return {
-      reviewer: 'claude',
+      reviewer,
       approved: false,
       findings: [
         {
@@ -129,7 +170,28 @@ export async function reviewCode(
     };
   }
 
-  const outcome = await runClaude(buildReviewPrompt(contract, plan, diff), config, {
+  const prompt = buildReviewPrompt(contract, plan, diff);
+
+  if (reviewer === 'gemini') {
+    const outcome = await runGemini(prompt, config, { jsonOutput: true });
+    if (!outcome.ok) {
+      return {
+        reviewer: 'gemini',
+        approved: false,
+        findings: [
+          {
+            severity: 'blocker',
+            file: null,
+            summary: `Kodegjennomgang (gemini) feilet: ${outcome.stderrTail || 'ukjent feil'}`,
+          },
+        ],
+        raw: outcome.resultText,
+      };
+    }
+    return parseReviewResult('gemini', outcome.resultText);
+  }
+
+  const outcome = await runClaude(prompt, config, {
     cwd: config.repoRoot,
     repoRoot: config.repoRoot,
     permissionMode: 'plan',

@@ -32,7 +32,13 @@ function contract() {
     scope: { description: 'x', allowedPaths: ['src/**'], disallowedPaths: ['src/secret/**'] },
     acceptanceCriteria: ['x'],
     testRequirements: { commands: ['pnpm run lint'], mustPass: true },
-    constraints: { maxRetries: 2, timeoutMinutes: 30, allowedImplementers: ['claude' as const] },
+    constraints: {
+      maxRetries: 2,
+      timeoutMinutes: 30,
+      allowedImplementers: ['claude' as const],
+      reviewers: ['claude' as const, 'gemini' as const],
+      secondaryReviewers: ['codex' as const, 'gemini' as const],
+    },
     git: { baseBranch: 'main', branchPrefix: 'agent/' },
     metadata: { labels: [] },
   };

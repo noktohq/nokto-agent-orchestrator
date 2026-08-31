@@ -19,6 +19,7 @@ const SECRET_PATTERNS: SecretPattern[] = [
   { name: 'shopify-token', pattern: /shp(?:at|ca|ss)_[A-Za-z0-9]{20,}/g },
   { name: 'openai-key', pattern: /sk-(?:proj-)?[A-Za-z0-9_-]{20,}/g },
   { name: 'anthropic-key', pattern: /sk-ant-[A-Za-z0-9_-]{20,}/g },
+  { name: 'google-api-key', pattern: /AIza[0-9A-Za-z_-]{35}/g },
   { name: 'aws-access-key-id', pattern: /AKIA[0-9A-Z]{16}/g },
   { name: 'slack-token', pattern: /xox[baprs]-[A-Za-z0-9-]{10,}/g },
   {

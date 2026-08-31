@@ -48,7 +48,7 @@ server.registerTool(
   {
     title: 'Doctor',
     description:
-      'Sjekker faktisk tilgjengelighet av claude-CLI, codex-CLI, gh-CLI/GITHUB_TOKEN. Gjetter aldri.',
+      'Sjekker faktisk tilgjengelighet av claude-CLI, codex-CLI, GEMINI_API_KEY og gh-CLI/GITHUB_TOKEN. Gjetter aldri.',
     inputSchema: {},
   },
   async () => {

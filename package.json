@@ -1,7 +1,7 @@
 {
   "name": "nokto-agent-orchestrator",
   "version": "1.0.0",
-  "description": "AI-agenter som leverer kode via pull request — Claude Code + Codex med worktree-isolasjon, command-allowlist og hemmelighetsskanning",
+  "description": "AI-agenter som leverer kode via pull request — Claude Code + Codex + Gemini med worktree-isolasjon, command-allowlist og hemmelighetsskanning",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -28,6 +28,7 @@
     "mcp": "tsx src/mcp/server.ts"
   },
   "dependencies": {
+    "@google/genai": "^2.19.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "commander": "^15.0.0",
     "js-yaml": "^4.1.0",
