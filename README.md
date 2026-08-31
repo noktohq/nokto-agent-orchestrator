@@ -2,7 +2,7 @@
 
 # nokto-agent-orchestrator
 
-Orchestrates Claude Code and OpenAI Codex in a controlled delivery workflow for code changes submitted through pull requests.
+Orchestrates Claude Code, OpenAI Codex, and Google Gemini in a controlled delivery workflow for code changes submitted through pull requests.
 
 Each task is planned, validated, implemented in an isolated Git worktree, reviewed independently, and verified against the task's own test commands. Changes are never merged automatically.
 
@@ -23,10 +23,10 @@ The system is built and used in production by [Nokto](https://nokto.no). Missing
    Codex is the primary implementer, with Claude as the fallback. Permitted implementation agents are controlled by `allowedImplementers` in the task contract.
 
 5. **Code review**
-   Claude reviews the diff independently and receives access only to the change itself, not the implementer's own summary.
+   The diff is reviewed independently by the first available provider in the task's `reviewers` list — Claude by default, with Gemini (through the Google GenAI SDK) as fallback when the Claude CLI is unavailable. The reviewer receives access only to the change itself, not the implementer's own summary.
 
 6. **Secondary review**
-   Codex performs an additional review in a read-only sandbox when Claude implemented the change, or when the primary review identified material findings.
+   An additional review is performed when Claude implemented the change, or when the primary review identified material findings. The provider is the first available in `secondaryReviewers` — Codex in a read-only sandbox by default, with Gemini as fallback when the Codex CLI is not installed.
 
 7. **Verification**
    The commands in `testRequirements.commands` are executed in the worktree through an explicit command allowlist.
@@ -90,6 +90,7 @@ pytest
 - pnpm 9
 - [`claude` CLI](https://docs.claude.com/claude-code), installed and authenticated for planning and code review
 - [`codex` CLI](https://developers.openai.com/codex), installed for implementation and secondary review
+- `GEMINI_API_KEY` if Google Gemini should be available for code review and secondary review — called directly through the official [Google GenAI SDK](https://github.com/googleapis/js-genai) (`@google/genai`), with the model configurable through `GEMINI_MODEL` (default `gemini-3.5-flash`)
 - `GITHUB_TOKEN` if the orchestrator should create pull requests automatically
 
 Codex is optional. Claude can be used as the only implementer by specifying:
@@ -98,6 +99,8 @@ Codex is optional. Claude can be used as the only implementer by specifying:
 allowedImplementers:
   - claude
 ```
+
+Gemini is intentionally never used as an implementer: it is called through the API without a CLI sandbox and structurally cannot modify files. It participates in the review roles, where it only ever receives the diff text.
 
 Check which providers and binaries are actually available in the environment:
 
@@ -227,6 +230,8 @@ See `tasks/example.yaml` for a complete example.
 | `constraints.maxRetries`          | Maximum number of correction attempts                                     |
 | `constraints.timeoutMinutes`      | Maximum runtime for the task                                              |
 | `constraints.allowedImplementers` | Implementation agents that may be used                                    |
+| `constraints.reviewers`           | Review providers in order of preference (`claude`, `gemini`)              |
+| `constraints.secondaryReviewers`  | Secondary-review providers in order of preference (`codex`, `gemini`)     |
 | `git.baseBranch`                  | Branch from which the worktree is created                                 |
 | `git.branchPrefix`                | Prefix used for task branches                                             |
 
@@ -250,11 +255,11 @@ Run the complete validation chain:
 pnpm run lint && pnpm run format:check && pnpm run typecheck && pnpm run test && pnpm run build
 ```
 
-The project has 80 tests.
+The project has 95 tests.
 
 The worktree-isolation and verification tests use real Git repositories in temporary directories, not mocks.
 
-Provider adapters are tested with mocked process execution. The standard test suite therefore performs no paid API calls.
+Provider adapters are tested with mocked process execution, and the Gemini adapter with a mocked SDK. The standard test suite therefore performs no paid API calls and requires no API keys.
 
 A real integration test against `claude -p` is available through explicit opt-in:
 
@@ -262,9 +267,52 @@ A real integration test against `claude -p` is available through explicit opt-in
 RUN_LIVE_PROVIDER_TESTS=1
 ```
 
+## Reproducible testing
+
+Everything below runs offline from a fresh clone — no provider binaries, no API keys, and no paid calls:
+
+```bash
+git clone https://github.com/noktohq/nokto-agent-orchestrator.git
+cd nokto-agent-orchestrator
+pnpm install
+pnpm run lint
+pnpm run format:check
+pnpm run typecheck
+pnpm test
+pnpm run build
+```
+
+`pnpm test` runs the vitest suite. All provider adapters — Claude, Codex, and Gemini — are tested against mocks, so the suite passes without any provider installed or any key set.
+
+Check which providers are actually available in your environment:
+
+```bash
+pnpm run cli -- doctor
+```
+
+Each provider is reported independently and the orchestrator only uses what `doctor` finds. To run the example task with only some providers available:
+
+- The minimum for `run` is the `claude` CLI: it covers planning, implementation, and primary review on its own.
+- With `claude` plus `GEMINI_API_KEY`, Gemini performs the secondary review that would otherwise require the `codex` CLI.
+- Without `GITHUB_TOKEN`, the run completes with phase `completed` instead of `pr_created` — pull-request creation is skipped, never simulated.
+
+```bash
+export GEMINI_API_KEY=...              # from Google AI Studio — never commit it
+export GEMINI_MODEL=gemini-3.5-flash   # optional, this is the default
+pnpm run cli -- run --task tasks/example.yaml
+```
+
+Environment variables for the Gemini provider:
+
+| Variable                   | Purpose                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------ |
+| `GEMINI_API_KEY`           | Enables the Gemini provider (code review and secondary review)                 |
+| `GEMINI_MODEL`             | Gemini model id, default `gemini-3.5-flash` — exact model ids change over time |
+| `AGENT_GEMINI_TIMEOUT_SEC` | Timeout in seconds per Gemini call, default 600                                |
+
 ## Cost control
 
-Every call to `claude -p` and `codex exec` is a real invocation that may incur costs.
+Every call to `claude -p`, `codex exec`, and the Gemini API is a real invocation that may incur costs.
 
 The following settings limit resource usage:
 
