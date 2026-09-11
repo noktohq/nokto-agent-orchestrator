@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   validate:
-    name: Lint, format, typecheck, tester, bygg
+    name: Lint, format, typecheck, test, build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,33 +28,33 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      - name: Installer avhengigheter (frozen lockfile)
+      - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
       - name: Lint
         run: pnpm run lint
 
-      - name: Formatteringssjekk
+      - name: Format check
         run: pnpm run format:check
 
       - name: Typecheck
         run: pnpm run typecheck
 
-      - name: Tester
+      - name: Test
         run: pnpm run test
         env:
-          # Ekte, betalte kall til claude/codex-CLI kjøres ALDRI i CI.
+          # Real, paid claude/codex CLI calls are NEVER run in CI.
           RUN_LIVE_PROVIDER_TESTS: '0'
 
-      - name: Bygg
+      - name: Build
         run: pnpm run build
 
   security:
-    name: Sårbarhetssjekk og hemmelighetsskanning
+    name: Vulnerability audit and secret scanning
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # gitleaks-action kaller GET /pulls/{number}/commits ved pull_request-events.
+      # gitleaks-action calls GET /pulls/{number}/commits on pull_request events.
       pull-requests: read
     steps:
       - uses: actions/checkout@v4
@@ -70,13 +70,13 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      - name: Installer avhengigheter (frozen lockfile)
+      - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
-      - name: Dependency audit (produksjonsavhengigheter — feiler hardt)
+      - name: Dependency audit (production dependencies — fails hard)
         run: pnpm audit --prod --audit-level=high
 
-      - name: Hemmelighetsskanning (gitleaks)
+      - name: Secret scanning (gitleaks)
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

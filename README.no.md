@@ -46,6 +46,9 @@ Alle hendelser lagres i en append-only JSONL-auditlogg. Hemmeligheter redigeres 
 
 ## Sikkerhet
 
+Se [SECURITY.md](SECURITY.md) (engelsk) for rapporteringskanal og kjente
+begrensninger, inkludert scope-håndhevingen omtalt nedenfor.
+
 | Kontroll                                      | Beskyttelse                                                                                                     |
 | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | Argv-basert prosesskjøring uten `shell: true` | Hindrer kommandoinjeksjon strukturelt, uten å være avhengig av tekstsanitering                                  |
@@ -263,6 +266,24 @@ En reell integrasjonstest mot `claude -p` finnes bak eksplisitt aktivering:
 RUN_LIVE_PROVIDER_TESTS=1
 ```
 
+## Dokumentert bevis
+
+Observert direkte ved å kjøre kommandoene mot dette repoet:
+
+| Kontroll                               | Resultat                                                               |
+| -------------------------------------- | ---------------------------------------------------------------------- |
+| `pnpm run lint`                        | Ren (ESLint)                                                           |
+| `pnpm run format:check`                | Ren (Prettier)                                                         |
+| `pnpm run typecheck`                   | Ren (`tsc --noEmit`)                                                   |
+| `pnpm run test`                        | 95 bestått, 1 hoppet over (16 testfiler)                               |
+| `pnpm run build`                       | Fullfører                                                              |
+| `pnpm audit --prod --audit-level=high` | 0 høy/kritisk (2 moderate, transitive — se [SECURITY.md](SECURITY.md)) |
+
+CI (`.github/workflows/ci.yml`) kjører to jobber på hver push til `main` og
+hver pull request: `validate` (lint, formattering, typecheck, test, bygg) og
+`security` (`pnpm audit --prod --audit-level=high`, deretter
+hemmelighetsskanning med `gitleaks`).
+
 ## Kostnadskontroll
 
 Hvert kall til `claude -p` og `codex exec` er et reelt kall som kan medføre kostnader.
@@ -277,7 +298,7 @@ Verdien `total_cost_usd`, rapportert av Claude CLI, registreres for hvert kall.
 
 ## Drift
 
-Se [RUNBOOK.md](RUNBOOK.md) for:
+Se [RUNBOOK.no.md](RUNBOOK.no.md) for:
 
 - helsesjekk
 - vanlige feil

@@ -46,6 +46,9 @@ All events are stored in an append-only JSONL audit log. Secrets are redacted be
 
 ## Security
 
+See [SECURITY.md](SECURITY.md) for the reporting channel and known
+limitations, including the current scope-enforcement gap noted below.
+
 | Control                                                | Protection                                                                                               |
 | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
 | Argument-based process execution without `shell: true` | Prevents command injection structurally, without relying on text sanitization                            |
@@ -267,6 +270,24 @@ A real integration test against `claude -p` is available through explicit opt-in
 ```bash
 RUN_LIVE_PROVIDER_TESTS=1
 ```
+
+## Evidence
+
+Directly observed by running the commands below against this repository:
+
+| Check                                  | Result                                                                             |
+| -------------------------------------- | ---------------------------------------------------------------------------------- |
+| `pnpm run lint`                        | Clean (ESLint)                                                                     |
+| `pnpm run format:check`                | Clean (Prettier)                                                                   |
+| `pnpm run typecheck`                   | Clean (`tsc --noEmit`)                                                             |
+| `pnpm run test`                        | 95 passed, 1 skipped (16 test files)                                               |
+| `pnpm run build`                       | Succeeds                                                                           |
+| `pnpm audit --prod --audit-level=high` | 0 high/critical findings (2 moderate, transitive — see [SECURITY.md](SECURITY.md)) |
+
+CI (`.github/workflows/ci.yml`) runs two jobs on every push to `main` and
+every pull request: `validate` (lint, format check, typecheck, test, build)
+and `security` (`pnpm audit --prod --audit-level=high`, then `gitleaks`
+secret scanning over the diff).
 
 ## Reproducible testing
 
