@@ -6,7 +6,7 @@ Orchestrates Claude Code, OpenAI Codex, and Google Gemini in a controlled delive
 
 Each task is planned, validated, implemented in an isolated Git worktree, reviewed independently, and verified against the task's own test commands. Changes are never merged automatically.
 
-The system is built and used in production by [Nokto](https://nokto.no). Missing providers are reported as unavailable, failing tests stop the run, and model output that cannot be parsed is treated as an error.
+The system is built and used in production by [Nokto](https://nokto.no). Missing providers are reported as unavailable, failing tests stop the run when `testRequirements.mustPass` is true (the default), and model output that cannot be parsed is treated as an error.
 
 ## Workflow
 
@@ -75,6 +75,7 @@ Allowed binaries include:
 git
 pnpm
 npm
+npx
 node
 tsc
 vitest
@@ -235,7 +236,7 @@ See `tasks/example.yaml` for a complete example.
 | `git.baseBranch`                  | Branch from which the worktree is created                                 |
 | `git.branchPrefix`                | Prefix used for task branches                                             |
 
-Plans and file changes outside the permitted scope are rejected.
+Plans outside the permitted scope are rejected. Scope is enforced on the plan's declared file list; the resulting diff is not yet checked against it.
 
 ## Testing
 

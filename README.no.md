@@ -6,7 +6,7 @@ Orkestrerer Claude Code og OpenAI Codex i en kontrollert leveranseflyt for kodee
 
 Hver oppgave planlegges, valideres, implementeres i en isolert Git-worktree, gjennomgås uavhengig og verifiseres mot oppgavens egne testkommandoer. Endringer merges aldri automatisk.
 
-Løsningen er bygget og brukt i produksjon av [Nokto](https://nokto.no). Manglende leverandører rapporteres som utilgjengelige, feilende tester stopper kjøringen, og modelloutput som ikke kan parses, behandles som feil.
+Løsningen er bygget og brukt i produksjon av [Nokto](https://nokto.no). Manglende leverandører rapporteres som utilgjengelige, feilende tester stopper kjøringen når `testRequirements.mustPass` er `true` (standard), og modelloutput som ikke kan parses, behandles som feil.
 
 ## Arbeidsflyt
 
@@ -75,6 +75,7 @@ Tillatte binærfiler inkluderer:
 git
 pnpm
 npm
+npx
 node
 tsc
 vitest
@@ -230,7 +231,7 @@ Se `tasks/example.yaml` for et komplett eksempel.
 | `git.baseBranch`                  | Branchen worktreet opprettes fra                                        |
 | `git.branchPrefix`                | Prefiks for oppgavebrancher                                             |
 
-Planer og filendringer som faller utenfor tillatt scope, avvises.
+Planer utenfor tillatt scope avvises. Scope håndheves på planens deklarerte filliste; den resulterende diffen sjekkes ennå ikke mot den.
 
 ## Testing
 
@@ -250,7 +251,7 @@ Kjør hele kontrollkjeden samlet:
 pnpm run lint && pnpm run format:check && pnpm run typecheck && pnpm run test && pnpm run build
 ```
 
-Prosjektet har 80 tester.
+Prosjektet har 95 tester.
 
 Testene for worktree-isolasjon og verifisering bruker ekte Git-repositorier i midlertidige kataloger, ikke mocks.
 
