@@ -5,3 +5,4 @@ coverage/
 .worktrees/
 audit/
 pnpm-lock.yaml
+STATE.yaml
