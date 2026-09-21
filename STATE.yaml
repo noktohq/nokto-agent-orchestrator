@@ -1,0 +1,77 @@
+# STATE.yaml — levende status for dette repoet (NOKTO CONTROL TOWER).
+# Schema: nokto-ops/control/schema/state.schema.json. Oppdateres av `nokto stop` — ikke dupliser i README.
+schema_version: 1
+project: nokto-agent-orchestrator — agentisk kodeleveranse via PR
+repo: noktohq/nokto-agent-orchestrator
+state: active
+phase: v1 i bruk, dokumentert på engelsk
+now: null
+next:
+  - Implementer diff-vs-allowedPaths-håndheving (kjent gap i SECURITY.md — allowedPaths er ikke en hard
+    sandkasse)
+  - Følg opp 2 moderate pnpm audit-advisories i transitive qs (via @google/genai → @modelcontextprotocol/sdk
+    → express)
+waiting: []
+blockers: []
+decisions_needed: []
+done:
+  - what: Fjernet tracked node-compile-cache/
+    at: '2026-09-21'
+    evidence: 'PR #7'
+  - what: SECURITY.md, engelsk RUNBOOK, Evidence-seksjoner, engelske CI-navn
+    at: '2026-09-11'
+    evidence: 'PR #6'
+  - what: Dockerfile for Cloud Run source deploy
+    at: '2026-08-31'
+    evidence: 'PR #4'
+  - what: 'Sikkerhetsrevisjon: js-yaml, fast-uri, hono løftet forbi advisories'
+    at: '2026-08-31'
+    evidence: 'PR #3'
+milestones:
+  - id: v1
+    title: Plan → validering → worktree → implementering → review → verifisering → PR
+    status: done
+    date: '2026-07-29'
+    evidence: README
+  - id: cloudrun
+    title: Public project endpoint på Cloud Run
+    status: done
+    date: '2026-08-31'
+    evidence: 'PR #2, #4'
+  - id: docs-en
+    title: Engelsk README/RUNBOOK/SECURITY med Evidence
+    status: done
+    date: '2026-09-11'
+    evidence: 'PR #6'
+  - id: scope-enforcement
+    title: Diff sjekkes mot allowedPaths før review
+    status: planned
+    date: null
+    evidence: 'SECURITY.md: Known limitations'
+environment:
+  runtime: Node 20+, pnpm 9; claude/codex CLI; GEMINI_API_KEY valgfritt
+  deploy: CLI/MCP-prosess lokalt; deploy/cloudrun for endepunkt
+  url: null
+  notes: null
+production_status: unknown
+production_note: deploy/cloudrun finnes; om Cloud Run-tjenesten kjører nå er ukjent.
+branch: main
+last_verified_commit: d0b6151
+last_checkpoint: null
+last_session: null
+security_findings:
+  - what: allowedPaths håndheves ikke strukturelt mot implementerers diff (kjent gap)
+    status: open
+    ref: SECURITY.md
+    since: '2026-09-11'
+  - what: 2 moderate advisories i transitive qs; CI feiler kun på high
+    status: accepted
+    ref: 'SECURITY.md: Known limitations'
+    since: '2026-09-11'
+updated_at: '2026-09-21T05:37:18Z'
+sources:
+  - README.md
+  - RUNBOOK.md
+  - SECURITY.md
+  - commits
+  - GitHub-snapshot 2026-09-21
