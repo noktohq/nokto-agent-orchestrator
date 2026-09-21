@@ -6,19 +6,14 @@ import type { OrchestratorConfig } from '../config.js';
 
 /**
  * Codex-provider — spawner den ekte `codex` CLI-en når den er installert.
- * Flagg er hentet fra offisiell OpenAI-dokumentasjon (developers.openai.com/codex),
- * IKKE gjettet — men de er ikke empirisk verifisert i dette repoets miljø siden
- * `codex` ikke er installert her (bekreftet av doctor()). Dersom faktisk
- * flaggoppførsel avviker fra dokumentasjonen, feiler kallet synlig (ikke-null
- * exitkode eller tom output) i stedet for å late som suksess.
+ * Flagg er empirisk verifisert mot codex-cli 0.144.6:
  *
  *   codex exec "<prompt>" -C <worktree> -s <read-only|workspace-write>
- *              -a never [-m <model>] --json -o <output-file>
+ *              [-m <model>] --json -o <output-file>
  *
- * `-a never` er valgt eksplisitt fremfor "untrusted"/"on-request": orkestratoren
- * kjører uten menneske til stede, og disse modiene kan eskalere til et
- * godkjenningsprompt som aldri besvares og bare venter til timeout. Med
- * "never" returneres kommandofeil direkte til modellen i stedet.
+ * `codex exec` er alltid non-interactive i codex-cli ≥0.144 og godtar ikke
+ * lenger `-a/--ask-for-approval` (gir "unexpected argument '-a'").
+ * Kommandofeil returneres direkte til modellen.
  * `--dangerously-bypass-approvals-and-sandbox`/`--yolo` og
  * `-s danger-full-access` brukes ALDRI av denne adapteren — eksplisitt
  * ekskludert som en sikkerhetsgrense (se også config.ts: sandboxEnv()).
@@ -57,8 +52,6 @@ export async function runCodex(
       opts.cwd,
       '-s',
       sandbox,
-      '-a',
-      'never',
       '--json',
       '-o',
       outputFile,
