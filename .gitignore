@@ -10,3 +10,6 @@ coverage/
 .state/
 .worktrees/
 audit/
+
+# Node compile cache (NODE_COMPILE_CACHE) — aldri i repo
+node-compile-cache/
