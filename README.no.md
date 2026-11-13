@@ -271,14 +271,14 @@ RUN_LIVE_PROVIDER_TESTS=1
 
 Observert direkte ved å kjøre kommandoene mot dette repoet:
 
-| Kontroll                               | Resultat                                                               |
-| -------------------------------------- | ---------------------------------------------------------------------- |
-| `pnpm run lint`                        | Ren (ESLint)                                                           |
-| `pnpm run format:check`                | Ren (Prettier)                                                         |
-| `pnpm run typecheck`                   | Ren (`tsc --noEmit`)                                                   |
-| `pnpm run test`                        | 95 bestått, 1 hoppet over (16 testfiler)                               |
-| `pnpm run build`                       | Fullfører                                                              |
-| `pnpm audit --prod --audit-level=high` | 0 høy/kritisk (2 moderate, transitive — se [SECURITY.md](SECURITY.md)) |
+| Kontroll                               | Resultat                                                 |
+| -------------------------------------- | -------------------------------------------------------- |
+| `pnpm run lint`                        | Ren (ESLint)                                             |
+| `pnpm run format:check`                | Ren (Prettier)                                           |
+| `pnpm run typecheck`                   | Ren (`tsc --noEmit`)                                     |
+| `pnpm run test`                        | 95 bestått, 1 hoppet over (16 testfiler)                 |
+| `pnpm run build`                       | Fullfører                                                |
+| `pnpm audit --prod --audit-level=high` | Ingen kjente sårbarheter (se [SECURITY.md](SECURITY.md)) |
 
 CI (`.github/workflows/ci.yml`) kjører to jobber på hver push til `main` og
 hver pull request: `validate` (lint, formattering, typecheck, test, bygg) og
