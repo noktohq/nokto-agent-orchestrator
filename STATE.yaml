@@ -9,12 +9,15 @@ now: null
 next:
   - Implementer diff-vs-allowedPaths-håndheving (kjent gap i SECURITY.md — allowedPaths er ikke en hard
     sandkasse)
-  - Følg opp 2 moderate pnpm audit-advisories i transitive qs (via @google/genai → @modelcontextprotocol/sdk
-    → express)
+  - Følg opp moderat advisory GHSA-g3hv-75wg-m249 i minimatch 10 (dev, via @typescript-eslint) når upstream
+    tillater minimatch 11
 waiting: []
 blockers: []
 decisions_needed: []
 done:
+  - what: 'Avhengigheter: MCP-SDK 1.32.2, zod 4.6.7, vitest 4.1.12, vite 6.4.6; pnpm audit --prod uten funn'
+    at: '2026-11-13'
+    evidence: 'gren nokto/sikkerhet-avhengigheter (PR-utkast)'
   - what: Fjernet tracked node-compile-cache/
     at: '2026-09-21'
     evidence: 'PR #7'
@@ -64,11 +67,11 @@ security_findings:
     status: open
     ref: SECURITY.md
     since: '2026-09-11'
-  - what: 2 moderate advisories i transitive qs; CI feiler kun på high
+  - what: 1 moderat advisory i minimatch 10 (dev, via @typescript-eslint); ingen patch i 10.x
     status: accepted
     ref: 'SECURITY.md: Known limitations'
-    since: '2026-09-11'
-updated_at: '2026-09-21T05:37:18Z'
+    since: '2026-11-13'
+updated_at: '2026-11-13T12:48:21Z'
 sources:
   - README.md
   - RUNBOOK.md

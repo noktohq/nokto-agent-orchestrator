@@ -39,6 +39,10 @@ describe('loadTaskContract', () => {
     expect(contract.constraints.reviewers).toEqual(['claude', 'gemini']);
     expect(contract.constraints.secondaryReviewers).toEqual(['codex', 'gemini']);
     expect(contract.git.baseBranch).toBe('main');
+    // Standardene inni utelatte objekter skal fylles inn (zod 4: .prefault, ikke .default).
+    expect(contract.constraints.timeoutMinutes).toBe(30);
+    expect(contract.git.branchPrefix).toBe('agent/');
+    expect(contract.metadata.labels).toEqual([]);
   });
 
   it('avviser gemini som implementerer — provideren har ingen CLI-sandbox', () => {
