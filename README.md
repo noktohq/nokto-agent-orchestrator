@@ -275,14 +275,14 @@ RUN_LIVE_PROVIDER_TESTS=1
 
 Directly observed by running the commands below against this repository:
 
-| Check                                  | Result                                                                             |
-| -------------------------------------- | ---------------------------------------------------------------------------------- |
-| `pnpm run lint`                        | Clean (ESLint)                                                                     |
-| `pnpm run format:check`                | Clean (Prettier)                                                                   |
-| `pnpm run typecheck`                   | Clean (`tsc --noEmit`)                                                             |
-| `pnpm run test`                        | 95 passed, 1 skipped (16 test files)                                               |
-| `pnpm run build`                       | Succeeds                                                                           |
-| `pnpm audit --prod --audit-level=high` | 0 high/critical findings (2 moderate, transitive — see [SECURITY.md](SECURITY.md)) |
+| Check                                  | Result                                                    |
+| -------------------------------------- | --------------------------------------------------------- |
+| `pnpm run lint`                        | Clean (ESLint)                                            |
+| `pnpm run format:check`                | Clean (Prettier)                                          |
+| `pnpm run typecheck`                   | Clean (`tsc --noEmit`)                                    |
+| `pnpm run test`                        | 95 passed, 1 skipped (16 test files)                      |
+| `pnpm run build`                       | Succeeds                                                  |
+| `pnpm audit --prod --audit-level=high` | No known vulnerabilities (see [SECURITY.md](SECURITY.md)) |
 
 CI (`.github/workflows/ci.yml`) runs two jobs on every push to `main` and
 every pull request: `validate` (lint, format check, typecheck, test, build)

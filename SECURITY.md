@@ -36,12 +36,13 @@ Two boundaries worth calling out explicitly:
 
 - Diff-vs-`allowedPaths` enforcement described above is backlog, not
   implemented.
-- `pnpm audit --prod` currently reports 2 moderate advisories in the
-  transitive `qs` dependency (via `@google/genai` →
-  `@modelcontextprotocol/sdk` → `express`). CI's security job only fails on
-  `--audit-level=high`, so these do not block merges. Track upstream fixes in
-  `@google/genai`/`@modelcontextprotocol/sdk` rather than pinning `qs`
-  directly, since it is not a direct dependency.
+- `pnpm audit --prod` reports no known vulnerabilities (verified
+  2026-11-13). The full `pnpm audit` (including dev dependencies) reports one
+  moderate advisory, GHSA-g3hv-75wg-m249, in `minimatch@10.2.6` via
+  `@typescript-eslint/*`. Only `minimatch >=11.0.1` is patched, and the latest
+  `@typescript-eslint` (8.72.2) still requires `minimatch ^10.2.2`, so it is
+  left for an upstream fix instead of overriding a major version. It is a lint
+  tool dependency and never ships in the runtime.
 - Gemini is called over the network via `@google/genai` with no CLI sandbox;
   it is restricted to review roles and only ever receives diff text, never
   file-write access.
