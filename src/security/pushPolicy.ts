@@ -1,5 +1,6 @@
 import { runCommand } from '../providers/exec.js';
 import { ALWAYS_PROTECTED_BRANCHES, type PushPolicy } from './allowlist.js';
+import { GIT_SAFETY_ARGS, inspectionGitEnv } from './gitIntegrity.js';
 import type { OrchestratorConfig } from '../config.js';
 import type { TaskContract } from '../types.js';
 
@@ -15,8 +16,14 @@ export interface ResolvedPushPolicy extends PushPolicy {
 export async function resolveOriginHead(config: OrchestratorConfig): Promise<string | null> {
   try {
     const res = await runCommand(
-      ['git', 'symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'],
-      { cwd: config.repoRoot, repoRoot: config.repoRoot, timeoutMs: 10_000, readOnly: true }
+      ['git', ...GIT_SAFETY_ARGS, 'symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'],
+      {
+        cwd: config.repoRoot,
+        repoRoot: config.repoRoot,
+        timeoutMs: 10_000,
+        readOnly: true,
+        env: inspectionGitEnv(),
+      }
     );
     if (!res.ok) return null;
     const ref = res.stdout.trim();

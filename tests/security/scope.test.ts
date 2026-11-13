@@ -41,6 +41,9 @@ interface GitAnswers {
   untracked?: ProviderInvocationResult;
   committedRaw?: ProviderInvocationResult;
   worktreeRaw?: ProviderInvocationResult;
+  replaceRefs?: ProviderInvocationResult;
+  revList?: ProviderInvocationResult;
+  commitRaw?: ProviderInvocationResult;
 }
 
 function rawLine(path: string, src = '100644', dst = '100644'): string {
@@ -50,9 +53,19 @@ function rawLine(path: string, src = '100644', dst = '100644'): string {
 /** Svarer på git-kallene til assertDiffWithinScope ut fra argumentene, ikke rekkefølgen. */
 function fakeGit(answers: GitAnswers = {}): void {
   runCommandMock.mockImplementation(async (argv) => {
-    const args = argv.slice(3); // git -c core.fsmonitor=false …
-    expect(argv.slice(0, 3)).toEqual(['git', '-c', 'core.fsmonitor=false']);
+    const args = argv.slice(5); // git -c core.fsmonitor=false -c core.hooksPath=/dev/null …
+    expect(argv.slice(0, 5)).toEqual([
+      'git',
+      '-c',
+      'core.fsmonitor=false',
+      '-c',
+      'core.hooksPath=/dev/null',
+    ]);
+    if (args[0] === 'rev-parse' && args.includes('--git-common-dir')) return ok(`${wtDir}\n`);
     if (args[0] === 'rev-parse') return answers.revParse ?? ok(`${HEAD}\n`);
+    if (args[0] === 'for-each-ref') return answers.replaceRefs ?? ok('');
+    if (args[0] === 'rev-list') return answers.revList ?? ok(`${HEAD} ${BASE}\n`);
+    if (args[0] === 'diff-tree') return answers.commitRaw ?? ok(rawLine('src/a.ts'));
     if (args[0] === 'merge-base') return answers.isAncestor ?? ok();
     if (args[0] === 'ls-files') return answers.untracked ?? ok();
     if (args[0] === 'diff') {
@@ -136,6 +149,70 @@ describe('path-policy (felles for plan og diff)', () => {
   });
 });
 
+describe('path-policy: store/små bokstaver, Unicode og nye hard-blokker', () => {
+  it('matcher disallowedPaths uten skille mellom store og små bokstaver', () => {
+    const scope = { allowedPaths: ['src/**'], disallowedPaths: ['src/secrets/**'] };
+    for (const p of ['src/Secrets/k.ts', 'src/SECRETS/k.ts', 'src/secrets/k.ts']) {
+      expect(
+        checkPathAgainstScope(p, scope).map((v) => v.rule),
+        p
+      ).toContain('disallowed');
+    }
+    expect(checkPathAgainstScope('src/other/k.ts', scope)).toEqual([]);
+  });
+
+  it('allowedPaths matches fortsatt eksakt (strengest)', () => {
+    expect(
+      checkPathAgainstScope('SRC/a.ts', { allowedPaths: ['src/**'], disallowedPaths: [] }).map(
+        (v) => v.rule
+      )
+    ).toContain('outside_allowed');
+  });
+
+  it('avviser C1-kontrolltegn, retningsstyring, nullbredde, BOM og ikke-NFC', () => {
+    expect(unsafePathReason('src/x\u0085y.ts')).toMatch(/kontrolltegn/);
+    expect(unsafePathReason('src/x\u009by.ts')).toMatch(/kontrolltegn/);
+    expect(unsafePathReason('src/\u202egpj.ts')).toMatch(/usynlige/);
+    expect(unsafePathReason('src/a\u200bb.ts')).toMatch(/usynlige/);
+    expect(unsafePathReason('\ufeffsrc/a.ts')).toMatch(/usynlige/);
+    expect(unsafePathReason('src/a\ufffd.ts')).toMatch(/Unicode/);
+    expect(unsafePathReason('src/a\ud800.ts')).toMatch(/Unicode/);
+    // «å» som a + kombinerende ring (NFD) — må være NFC.
+    expect(unsafePathReason('src/a\u030a.ts')).toMatch(/NFC/);
+    expect(unsafePathReason('src/\u00e5.ts')).toBeNull();
+    expect(unsafePathReason('docs/historikk-æøå.md')).toBeNull();
+  });
+
+  it('hard-blokken folder kompatibilitetstegn: .github/workflowſ/ (ſ = U+017F)', () => {
+    expect(isHardBlockedPath('.github/workflow\u017f/e.yml')).toBe(true);
+    expect(isHardBlockedPath('.git\u029cub/x.yml')).toBe(false);
+  });
+
+  it('hard-blokkerer hele .github/, .gitattributes, .husky/, .npmrc og CODEOWNERS', () => {
+    for (const p of [
+      '.github/actions/x/action.yml',
+      '.github/CODEOWNERS',
+      '.github/dependabot.yml',
+      'CODEOWNERS',
+      'docs/CODEOWNERS',
+      '.gitattributes',
+      'src/.gitattributes',
+      '.husky/pre-commit',
+      '.npmrc',
+      'packages/a/.npmrc',
+      'prod.env',
+    ]) {
+      expect(isHardBlockedPath(p), p).toBe(true);
+      expect(
+        checkPathAgainstScope(p, { allowedPaths: ['**'], disallowedPaths: [] }).map((v) => v.rule),
+        p
+      ).toContain('hard_blocked');
+    }
+    expect(isHardBlockedPath('src/env.ts')).toBe(false);
+    expect(isHardBlockedPath('docs/README.md')).toBe(false);
+  });
+});
+
 describe('assertDiffWithinScope — fail closed (mocket git)', () => {
   afterEach(() => {
     runCommandMock.mockReset();
@@ -147,7 +224,18 @@ describe('assertDiffWithinScope — fail closed (mocket git)', () => {
     expect(result).toEqual({ baseSha: BASE, headSha: HEAD, files: ['src/a.ts'] });
     for (const [argv, opts] of runCommandMock.mock.calls) {
       expect(argv).not.toContain('--ext-diff');
-      expect(opts).toMatchObject({ readOnly: true, cwd: wtDir });
+      expect(opts).toMatchObject({
+        readOnly: true,
+        cwd: wtDir,
+        env: expect.objectContaining({
+          GIT_NO_REPLACE_OBJECTS: '1',
+          GIT_CONFIG_NOSYSTEM: '1',
+          GIT_CONFIG_GLOBAL: '/dev/null',
+        }),
+      });
+      if (argv.includes('diff') || argv.includes('diff-tree')) {
+        expect(argv).toContain('--ignore-submodules=none');
+      }
     }
   });
 
@@ -214,6 +302,7 @@ describe('assertDiffWithinScope — fail closed (mocket git)', () => {
       worktreeNames: ok(''),
       committedRaw: ok(''),
       worktreeRaw: ok(''),
+      revList: ok(''),
     });
     await expect(assertDiffWithinScope(config, contract(), wt())).rejects.toThrow(
       /Ingen endringer/
@@ -240,5 +329,38 @@ describe('assertDiffWithinScope — fail closed (mocket git)', () => {
     const rules = (err as InstanceType<typeof ScopeViolationError>).violations.map((v) => v.rule);
     expect(rules).toContain('symlink');
     expect(rules).toContain('submodule');
+  });
+
+  it('kaster når repoet har replace-refs', async () => {
+    fakeGit({ replaceRefs: ok(`refs/replace/${HEAD}\n`) });
+    await expect(assertDiffWithinScope(config, contract(), wt())).rejects.toThrow(/replace-refs/);
+  });
+
+  it('sjekker stier i hver commit, ikke bare nettodiffen', async () => {
+    const mid = 'c'.repeat(40);
+    fakeGit({
+      revList: ok(`${HEAD} ${mid}\n${mid} ${BASE}\n`),
+      commitRaw: ok(rawLine('src/a.ts') + rawLine('.env', '000000', '100644')),
+    });
+    const err = await assertDiffWithinScope(config, contract(), wt()).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ScopeViolationError);
+    expect((err as InstanceType<typeof ScopeViolationError>).violations).toContainEqual(
+      expect.objectContaining({ path: '.env', rule: 'hard_blocked' })
+    );
+  });
+
+  it('avviser merge-commits i agentgrenen', async () => {
+    const other = 'd'.repeat(40);
+    fakeGit({ revList: ok(`${HEAD} ${BASE} ${other}\n`) });
+    const err = await assertDiffWithinScope(config, contract(), wt()).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ScopeViolationError);
+    expect((err as InstanceType<typeof ScopeViolationError>).violations).toContainEqual(
+      expect.objectContaining({ path: HEAD, rule: 'merge_commit' })
+    );
+  });
+
+  it('kaster når git-output er avkortet i byte, også med flerbytetegn', async () => {
+    fakeGit({ untracked: { ...ok('src/æ.ts\0'), stdoutTruncated: true } });
+    await expect(assertDiffWithinScope(config, contract(), wt())).rejects.toThrow(/fangstgrensen/);
   });
 });

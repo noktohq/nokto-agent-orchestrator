@@ -45,8 +45,32 @@ export const taskContractSchema = z.object({
     .default({}),
   git: z
     .object({
-      baseBranch: z.string().min(1).default('main'),
-      branchPrefix: z.string().min(1).default('agent/'),
+      baseBranch: z
+        .string()
+        .min(1)
+        .regex(
+          /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/,
+          'baseBranch må være et gyldig grennavn'
+        )
+        .refine((b) => !b.includes('..') && !b.endsWith('.lock'), 'baseBranch er ugyldig')
+        .default('main'),
+      // Prefikset må slutte på "/": "release" eller "r" ville latt push-vakten godta
+      // "release-…" og "r…", som kan være beskyttet etter konvensjon.
+      branchPrefix: z
+        .string()
+        .regex(
+          /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*\/$/,
+          'branchPrefix må være et gyldig grennavn som slutter på "/", f.eks. "agent/"'
+        )
+        .refine(
+          (p) => !p.includes('..') && !p.split('/').some((seg) => seg.endsWith('.lock')),
+          'branchPrefix er ugyldig'
+        )
+        .refine(
+          (p) => !['main/', 'master/'].includes(p.toLowerCase()),
+          'branchPrefix kan ikke være main/ eller master/'
+        )
+        .default('agent/'),
     })
     .default({}),
   metadata: z
@@ -145,6 +169,15 @@ export interface TaskState {
   prUrl: string | null;
   cancelled: boolean;
   dryRun: boolean;
+  /**
+   * Låst før første implementering og gjenbrukt i alle forsøk (også ved resume):
+   * base-commiten og fingeravtrykket av git-konfigurasjonen. Et senere forsøk skal ikke
+   * kunne få en base eller konfig et tidligere forsøk har plantet.
+   */
+  security?: {
+    baseSha?: string;
+    gitConfigDigest?: string;
+  };
 }
 
 export interface ProviderInvocationResult {
@@ -154,6 +187,9 @@ export interface ProviderInvocationResult {
   stderr: string;
   durationMs: number;
   timedOut: boolean;
+  /** Satt av runCommand når stdout ble kuttet ved fangstgrensen (MAX_CAPTURE_BYTES). */
+  stdoutTruncated?: boolean;
+  stderrTruncated?: boolean;
 }
 
 export interface DoctorReport {

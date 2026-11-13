@@ -25,12 +25,21 @@ vi.mock('../../src/security/scope.js', async (importOriginal) => ({
   assertDiffWithinScope: (...args: unknown[]) => assertDiffWithinScopeMock(...args),
 }));
 
+const assertBaseOnRemoteMock = vi.fn();
+const assertGitConfigUnchangedMock = vi.fn();
+vi.mock('../../src/security/gitIntegrity.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/security/gitIntegrity.js')>()),
+  assertBaseOnRemote: (...args: unknown[]) => assertBaseOnRemoteMock(...args),
+  assertGitConfigUnchanged: (...args: unknown[]) => assertGitConfigUnchangedMock(...args),
+}));
+
 const resolvePushPolicyMock = vi.fn();
 vi.mock('../../src/security/pushPolicy.js', () => ({
   resolvePushPolicy: (...args: unknown[]) => resolvePushPolicyMock(...args),
 }));
 
-const { ScopeViolationError } = await import('../../src/security/scope.js');
+const { ScopeViolationError, ScopeInspectionError } = await import('../../src/security/scope.js');
+const { GitIntegrityError } = await import('../../src/security/gitIntegrity.js');
 const { assertCommandAllowed } = await import('../../src/security/allowlist.js');
 const { createTaskPullRequest, SecretsInDiffError, PushBlockedError } =
   await import('../../src/orchestrator/pr.js');
@@ -78,11 +87,15 @@ describe('createTaskPullRequest', () => {
       branchPrefix: 'agent/',
       originHead: 'trunk',
     });
+    assertBaseOnRemoteMock.mockResolvedValue('b'.repeat(40));
+    assertGitConfigUnchangedMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     assertDiffWithinScopeMock.mockReset();
     resolvePushPolicyMock.mockReset();
+    assertBaseOnRemoteMock.mockReset();
+    assertGitConfigUnchangedMock.mockReset();
     runCommandMock.mockReset();
     resolveRepoRefMock.mockReset();
     createPullRequestMock.mockReset();
@@ -147,12 +160,35 @@ describe('createTaskPullRequest', () => {
     );
 
     expect(result.number).toBe(42);
+    const scanCall = runCommandMock.mock.calls[0] as [string[], { env?: NodeJS.ProcessEnv }];
+    // Hver commit i base..head skannes, med diff-flagg som viser det som faktisk er lagret.
+    expect(scanCall[0]).toEqual(
+      expect.arrayContaining([
+        'log',
+        '-p',
+        '--text',
+        '--no-textconv',
+        '--no-ext-diff',
+        '--ignore-submodules=none',
+        `${'b'.repeat(40)}..${HEAD_SHA}`,
+      ])
+    );
+    expect(scanCall[1].env?.GIT_NO_REPLACE_OBJECTS).toBe('1');
+    expect(assertBaseOnRemoteMock).toHaveBeenCalledWith(
+      expect.anything(),
+      'pr-test',
+      'main',
+      'b'.repeat(40)
+    );
+
     const pushCall = runCommandMock.mock.calls[1] as [string[], { pushPolicy?: unknown }];
     // Nøyaktig den sjekkede commiten til en eksplisitt agentgren, uten hooks.
     expect(pushCall[0]).toEqual([
       'git',
       '-c',
       'core.hooksPath=/dev/null',
+      '-c',
+      'core.fsmonitor=false',
       'push',
       '--no-verify',
       'origin',
@@ -225,5 +261,55 @@ describe('createTaskPullRequest', () => {
 
     expect(runCommandMock).not.toHaveBeenCalled();
     expect(createPullRequestMock).not.toHaveBeenCalled();
+  });
+
+  it('pusher ikke når basen ikke finnes i remote-grenen', async () => {
+    assertBaseOnRemoteMock.mockRejectedValueOnce(new GitIntegrityError('base ikke i remote'));
+    await expect(
+      createTaskPullRequest(fakeConfig(), contract(), plan, review, null, verify, worktree)
+    ).rejects.toThrow(GitIntegrityError);
+    expect(runCommandMock).not.toHaveBeenCalled();
+    expect(createPullRequestMock).not.toHaveBeenCalled();
+  });
+
+  it('pusher ikke når git-konfigurasjonen er endret siden agenten startet', async () => {
+    assertGitConfigUnchangedMock.mockRejectedValueOnce(new GitIntegrityError('konfig endret'));
+    await expect(
+      createTaskPullRequest(fakeConfig(), contract(), plan, review, null, verify, worktree, {
+        gitConfigDigest: 'før',
+      })
+    ).rejects.toThrow(GitIntegrityError);
+    expect(assertGitConfigUnchangedMock).toHaveBeenCalledWith(expect.anything(), 'før');
+    expect(runCommandMock).not.toHaveBeenCalled();
+  });
+
+  it('pusher ikke når patchene ikke kan leses fullstendig (fail closed)', async () => {
+    runCommandMock.mockResolvedValueOnce({
+      ok: true,
+      exitCode: 0,
+      stdout: 'commit x\n+ kode',
+      stderr: '',
+      durationMs: 5,
+      timedOut: false,
+      stdoutTruncated: true,
+    });
+    await expect(
+      createTaskPullRequest(fakeConfig(), contract(), plan, review, null, verify, worktree)
+    ).rejects.toThrow(ScopeInspectionError);
+    expect(runCommandMock).toHaveBeenCalledTimes(1);
+
+    runCommandMock.mockReset();
+    runCommandMock.mockResolvedValueOnce({
+      ok: false,
+      exitCode: 128,
+      stdout: '',
+      stderr: 'fatal',
+      durationMs: 5,
+      timedOut: false,
+    });
+    await expect(
+      createTaskPullRequest(fakeConfig(), contract(), plan, review, null, verify, worktree)
+    ).rejects.toThrow(ScopeInspectionError);
+    expect(runCommandMock).toHaveBeenCalledTimes(1);
   });
 });

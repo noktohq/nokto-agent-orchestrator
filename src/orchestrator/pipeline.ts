@@ -18,6 +18,11 @@ import {
   ScopeInspectionError,
   ScopeViolationError,
 } from '../security/scope.js';
+import {
+  assertGitConfigUnchanged,
+  gitConfigDigest,
+  GitIntegrityError,
+} from '../security/gitIntegrity.js';
 import type { OrchestratorConfig } from '../config.js';
 import type {
   ReviewResult,
@@ -37,11 +42,17 @@ export class TaskCancelledError extends Error {}
  */
 class ScopeAbortError extends Error {}
 
-function isScopeError(err: unknown): err is ScopeViolationError | ScopeInspectionError {
-  return err instanceof ScopeViolationError || err instanceof ScopeInspectionError;
+type GuardError = ScopeViolationError | ScopeInspectionError | GitIntegrityError;
+
+function isScopeError(err: unknown): err is GuardError {
+  return (
+    err instanceof ScopeViolationError ||
+    err instanceof ScopeInspectionError ||
+    err instanceof GitIntegrityError
+  );
 }
 
-function scopeAuditData(err: ScopeViolationError | ScopeInspectionError): Record<string, unknown> {
+function scopeAuditData(err: GuardError): Record<string, unknown> {
   return {
     error: err.name,
     reason: err.message,
@@ -223,6 +234,15 @@ export async function runTask(
       setPhase('plan_validated');
     }
 
+    // Fingeravtrykk av git-konfigurasjonen før noen agent kjører i denne oppgaven. Låses
+    // i state, så et resume ikke tar et nytt avtrykk av konfig agenten kan ha endret.
+    state.security = state.security ?? {};
+    if (state.security.gitConfigDigest === undefined) {
+      state.security.gitConfigDigest = await gitConfigDigest(config);
+      persist(store, state);
+    }
+    const configDigest = state.security.gitConfigDigest;
+
     const maxAttempts = contract.constraints.maxRetries + 1;
     let feedback: string | undefined;
     let succeeded = false;
@@ -237,15 +257,38 @@ export async function runTask(
       setPhase('implementing');
       audit.record('attempt_started', contract.id, { attempt: attemptNum });
 
+      // Agenten i et tidligere forsøk kan ha endret delt git-konfig (remote, fetch-refspec,
+      // hooks, filter-drivere). Da kjøres ingen flere git-kall for oppgaven.
+      try {
+        await assertGitConfigUnchanged(config, configDigest);
+      } catch (err) {
+        if (!(err instanceof GitIntegrityError)) throw err;
+        attempt.failureReason = `Git-integritet: ${err.message}`.slice(0, 4000);
+        attempt.finishedAt = nowIso();
+        audit.record('scope_violation', contract.id, {
+          attempt: attemptNum,
+          stage: 'before_worktree',
+          ...scopeAuditData(err),
+        });
+        setPhase('failed');
+        audit.record('task_failed', contract.id, { reason: attempt.failureReason });
+        return state;
+      }
+
       let worktree: WorktreeHandle;
       try {
+        const lockedBase = state.security.baseSha;
         worktree = await createWorktree(
           config,
           contract.id,
           attemptNum,
           contract.git.branchPrefix,
-          contract.git.baseBranch
+          contract.git.baseBranch,
+          lockedBase !== undefined ? { baseSha: lockedBase } : {}
         );
+        if (lockedBase === undefined && worktree.baseSha !== undefined) {
+          state.security.baseSha = worktree.baseSha;
+        }
       } catch (err) {
         attempt.failureReason = `Worktree-opprettelse feilet: ${message(err)}`;
         attempt.finishedAt = nowIso();
@@ -311,7 +354,7 @@ export async function runTask(
 
           checkCancelled(store, state);
           setPhase('reviewing');
-          review = await reviewCode(config, contract, plan, worktree.path);
+          review = await reviewCode(config, contract, plan, worktree.path, worktree.baseSha);
           attempt.review = review;
           audit.record('review_finished', contract.id, {
             approved: review.approved,
@@ -321,7 +364,13 @@ export async function runTask(
           if (needsSecondaryReview(implResult.implementer, review)) {
             checkCancelled(store, state);
             setPhase('secondary_review');
-            secondaryReview = await secondaryReviewCode(config, contract, plan, worktree.path);
+            secondaryReview = await secondaryReviewCode(
+              config,
+              contract,
+              plan,
+              worktree.path,
+              worktree.baseSha
+            );
             attempt.secondaryReview = secondaryReview;
             if (secondaryReview) {
               audit.record('secondary_review_finished', contract.id, {
@@ -403,7 +452,8 @@ export async function runTask(
         successAttempt.review as ReviewResult,
         successAttempt.secondaryReview,
         successAttempt.verify as VerifyResult,
-        successWorktree
+        successWorktree,
+        { gitConfigDigest: configDigest }
       );
       state.prUrl = pr.htmlUrl;
       setPhase('pr_created');

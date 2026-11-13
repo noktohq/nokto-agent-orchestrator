@@ -28,6 +28,11 @@ vi.mock('../../src/security/scope.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/security/scope.js')>()),
   assertDiffWithinScope: vi.fn(),
 }));
+vi.mock('../../src/security/gitIntegrity.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/security/gitIntegrity.js')>()),
+  gitConfigDigest: vi.fn(),
+  assertGitConfigUnchanged: vi.fn(),
+}));
 
 const { planTask } = await import('../../src/orchestrator/planner.js');
 const { validatePlan } = await import('../../src/orchestrator/validator.js');
@@ -41,6 +46,8 @@ const { runVerify } = await import('../../src/orchestrator/verifier.js');
 const { createTaskPullRequest } = await import('../../src/orchestrator/pr.js');
 const { assertDiffWithinScope, ScopeViolationError, ScopeInspectionError } =
   await import('../../src/security/scope.js');
+const { gitConfigDigest, assertGitConfigUnchanged, GitIntegrityError } =
+  await import('../../src/security/gitIntegrity.js');
 const { AuditLog } = await import('../../src/audit.js');
 const { runTask } = await import('../../src/orchestrator/pipeline.js');
 const { TaskStore } = await import('../../src/orchestrator/taskStore.js');
@@ -103,8 +110,14 @@ describe('runTask (pipeline, med mockede agent-leverandører)', () => {
     let attemptCounter = 0;
     vi.mocked(createWorktree).mockImplementation(async () => {
       attemptCounter += 1;
-      return { path: resolve(dir, `wt-${attemptCounter}`), branch: `agent/x-${attemptCounter}` };
+      return {
+        path: resolve(dir, `wt-${attemptCounter}`),
+        branch: `agent/x-${attemptCounter}`,
+        baseSha: `${attemptCounter}`.repeat(40),
+      };
     });
+    vi.mocked(gitConfigDigest).mockResolvedValue('digest-1');
+    vi.mocked(assertGitConfigUnchanged).mockResolvedValue(undefined);
     vi.mocked(removeWorktree).mockResolvedValue(undefined);
     vi.mocked(deleteLocalBranch).mockResolvedValue(undefined);
     vi.mocked(needsSecondaryReview).mockReturnValue(false);
@@ -337,6 +350,66 @@ describe('runTask (pipeline, med mockede agent-leverandører)', () => {
       const events = new AuditLog(config.auditDir, 'pipeline-test').readAll();
       expect(events.find((e) => e.type === 'scope_violation')?.stage).toBe('before_push');
       expect(events.some((e) => e.type === 'pr_creation_skipped')).toBe(false);
+    });
+  });
+
+  describe('låst base og git-integritet mellom forsøk', () => {
+    it('forsøk 2 bruker base-commiten fra forsøk 1, ikke en ny fetch', async () => {
+      vi.mocked(implementTask)
+        .mockResolvedValueOnce({ ok: false, implementer: 'claude', summary: '', stderrTail: 'x' })
+        .mockResolvedValueOnce({ ok: true, implementer: 'claude', summary: 'ok', stderrTail: '' });
+
+      const store = new TaskStore(config.stateDir);
+      const state = await runTask({ config, store }, contract({ maxRetries: 1 }));
+
+      expect(state.phase).toBe('pr_created');
+      const calls = vi.mocked(createWorktree).mock.calls;
+      expect(calls).toHaveLength(2);
+      expect(calls[0]?.[5]).toEqual({});
+      expect(calls[1]?.[5]).toEqual({ baseSha: '1'.repeat(40) });
+      expect(state.security).toEqual({ baseSha: '1'.repeat(40), gitConfigDigest: 'digest-1' });
+      expect(vi.mocked(reviewCode).mock.calls[0]?.[4]).toBe('2'.repeat(40));
+      expect(vi.mocked(createTaskPullRequest).mock.calls[0]?.[7]).toEqual({
+        gitConfigDigest: 'digest-1',
+      });
+    });
+
+    it('stopper når git-konfigurasjonen er endret før et nytt forsøk', async () => {
+      vi.mocked(implementTask).mockResolvedValue({
+        ok: false,
+        implementer: 'claude',
+        summary: '',
+        stderrTail: 'feilet med vilje',
+      });
+      vi.mocked(assertGitConfigUnchanged)
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new GitIntegrityError('konfig endret'));
+
+      const store = new TaskStore(config.stateDir);
+      const state = await runTask({ config, store }, contract({ maxRetries: 2 }));
+
+      expect(state.phase).toBe('failed');
+      expect(createWorktree).toHaveBeenCalledTimes(1);
+      expect(state.attempts.at(-1)?.failureReason).toMatch(/Git-integritet/);
+      expect(createTaskPullRequest).not.toHaveBeenCalled();
+    });
+
+    it('git-integritetsfeil rett før push gir failed, ikke completed', async () => {
+      vi.mocked(implementTask).mockResolvedValue({
+        ok: true,
+        implementer: 'claude',
+        summary: 'ok',
+        stderrTail: '',
+      });
+      vi.mocked(createTaskPullRequest).mockRejectedValueOnce(
+        new GitIntegrityError('base finnes ikke i remote')
+      );
+
+      const store = new TaskStore(config.stateDir);
+      const state = await runTask({ config, store }, contract({ maxRetries: 0 }));
+
+      expect(state.phase).toBe('failed');
+      expect(state.attempts.at(-1)?.failureReason).toMatch(/base finnes ikke/);
     });
   });
 });

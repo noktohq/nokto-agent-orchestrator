@@ -361,4 +361,164 @@ describe('assertDiffWithinScope (ekte git)', () => {
       assertDiffWithinScope(config, contract(), { ...wt, path: resolve(root, 'finnes-ikke') })
     ).rejects.toThrow(ScopeInspectionError);
   });
+
+  describe('omgåelser funnet i gjennomgangen', () => {
+    it('replace-refs: diffen kan ikke vise et annet tre enn det som pushes', async () => {
+      const base = wt.baseSha as string;
+      // Ekte commit: lovlig endring + ond workflow.
+      write(wt.path, 'src/a.ts', 'export const a = 2;\n');
+      write(wt.path, '.github/workflows/evil.yml', 'name: evil\n');
+      commitAll(wt.path, 'ekte');
+      const real = git(wt.path, 'rev-parse', 'HEAD').trim();
+      // Falsk commit med bare den lovlige endringen.
+      git(wt.path, 'checkout', '-q', '-b', 'falsk', base);
+      write(wt.path, 'src/a.ts', 'export const a = 2;\n');
+      commitAll(wt.path, 'falsk');
+      const fake = git(wt.path, 'rev-parse', 'HEAD').trim();
+      git(wt.path, 'checkout', '-q', wt.branch);
+      git(wt.path, 'replace', real, fake);
+      // Uten vern ville git vist bare src/a.ts.
+      expect(git(wt.path, 'diff', '--name-only', base, real).trim()).toBe('src/a.ts');
+
+      await expect(assertDiffWithinScope(config, contract(), wt)).rejects.toThrow(/replace-refs/);
+    });
+
+    it('info/grafts avvises', async () => {
+      write(wt.path, 'src/a.ts', 'export const a = 2;\n');
+      commitAll(wt.path);
+      const common = git(wt.path, 'rev-parse', '--path-format=absolute', '--git-common-dir').trim();
+      write(common, 'info/grafts', `${git(wt.path, 'rev-parse', 'HEAD').trim()}\n`);
+
+      await expect(assertDiffWithinScope(config, contract(), wt)).rejects.toThrow(/grafts/);
+    });
+
+    it('diff.ignoreSubmodules=all i delt konfig skjuler ikke en gitlink', async () => {
+      git(config.repoRoot, 'config', 'diff.ignoreSubmodules', 'all');
+      const sha = git(wt.path, 'rev-parse', 'HEAD').trim();
+      write(wt.path, 'src/a.ts', 'export const a = 2;\n');
+      git(wt.path, 'add', 'src/a.ts');
+      git(wt.path, 'update-index', '--add', '--cacheinfo', `160000,${sha},src/sub`);
+      git(wt.path, 'commit', '-q', '-m', 'gitlink');
+      // Konfigen skjuler gitlinken for vanlig git diff.
+      expect(git(wt.path, 'diff', '--name-only', wt.baseSha as string, 'HEAD').trim()).toBe(
+        'src/a.ts'
+      );
+
+      expect(await violationsOf(config, contract(), wt)).toContainEqual({
+        path: 'src/sub',
+        rule: 'submodule',
+      });
+    });
+
+    it('en fil lagt til og fjernet i mellomliggende commits blir sett', async () => {
+      write(wt.path, 'src/a.ts', 'export const a = 2;\n');
+      write(wt.path, '.env', 'SECRET=1\n');
+      commitAll(wt.path, 'legg til .env');
+      git(wt.path, 'rm', '-q', '.env');
+      git(wt.path, 'commit', '-q', '-m', 'fjern .env');
+      // Nettodiffen har ikke .env.
+      expect(git(wt.path, 'diff', '--name-only', wt.baseSha as string, 'HEAD').trim()).toBe(
+        'src/a.ts'
+      );
+
+      expect(await violationsOf(config, contract(['**'], []), wt)).toContainEqual({
+        path: '.env',
+        rule: 'hard_blocked',
+      });
+    });
+
+    it('avviser en merge med en foreldreløs commit (-s ours)', async () => {
+      git(wt.path, 'checkout', '-q', '--orphan', 'foreldrelos');
+      git(wt.path, 'rm', '-rq', '--cached', '.');
+      write(wt.path, '.github/workflows/evil.yml', 'name: evil\n');
+      git(wt.path, 'add', '.github/workflows/evil.yml');
+      git(wt.path, 'commit', '-q', '-m', 'foreldreløs');
+      git(wt.path, 'checkout', '-q', '-f', wt.branch);
+      git(wt.path, 'clean', '-fdq');
+      write(wt.path, 'src/a.ts', 'export const a = 2;\n');
+      commitAll(wt.path);
+      git(
+        wt.path,
+        'merge',
+        '-q',
+        '-s',
+        'ours',
+        '--allow-unrelated-histories',
+        '-m',
+        'm',
+        'foreldrelos'
+      );
+
+      const v = await violationsOf(config, contract(), wt);
+      expect(v.map((x) => x.rule)).toContain('merge_commit');
+    });
+  });
+});
+
+describe('createWorktree: basen kan ikke forgiftes mellom forsøk (ekte git)', () => {
+  let root: string;
+  let config: OrchestratorConfig;
+  let originDir: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(resolve(tmpdir(), 'nokto-base-'));
+    originDir = resolve(root, 'origin');
+    const repoRoot = resolve(root, 'clone');
+    git(root, 'init', '-q', '--initial-branch=main', originDir);
+    write(originDir, 'src/a.ts', 'export const a = 1;\n');
+    commitAll(originDir, 'første');
+    git(root, 'clone', '-q', originDir, repoRoot);
+    config = {
+      repoRoot,
+      stateDir: resolve(root, 'state'),
+      auditDir: resolve(root, 'audit'),
+      worktreeDir: resolve(root, 'worktrees'),
+    } as unknown as OrchestratorConfig;
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function poison(wt: WorktreeHandle): string {
+    write(wt.path, '.github/workflows/evil.yml', 'name: evil\n');
+    commitAll(wt.path, 'ond');
+    const evil = git(wt.path, 'rev-parse', 'HEAD').trim();
+    git(
+      wt.path,
+      'config',
+      'remote.origin.fetch',
+      '+refs/heads/ingenting:refs/remotes/origin/ingenting'
+    );
+    git(wt.path, 'update-ref', 'refs/remotes/origin/main', evil);
+    return evil;
+  }
+
+  it('henter basen med egen refspec, ikke fra origin/main agenten har flyttet', async () => {
+    const realMain = git(originDir, 'rev-parse', 'main').trim();
+    const wt1 = await createWorktree(config, 'gift', 1, 'agent/', 'main');
+    const evil = poison(wt1);
+
+    const wt2 = await createWorktree(config, 'gift', 2, 'agent/', 'main');
+    expect(wt2.baseSha).toBe(realMain);
+    expect(wt2.baseSha).not.toBe(evil);
+    // origin/main peker fortsatt på den onde commiten — den brukes ikke.
+    expect(git(config.repoRoot, 'rev-parse', 'origin/main').trim()).toBe(evil);
+  });
+
+  it('med låst base hentes ingenting: senere forsøk får samme base', async () => {
+    const wt1 = await createWorktree(config, 'last', 1, 'agent/', 'main');
+    poison(wt1);
+    const wt2 = await createWorktree(config, 'last', 2, 'agent/', 'main', {
+      baseSha: wt1.baseSha as string,
+    });
+    expect(wt2.baseSha).toBe(wt1.baseSha);
+    expect(git(wt2.path, 'rev-parse', 'HEAD').trim()).toBe(wt1.baseSha);
+  });
+
+  it('avviser en låst base som ikke finnes', async () => {
+    await expect(
+      createWorktree(config, 'ukjent', 1, 'agent/', 'main', { baseSha: 'e'.repeat(40) })
+    ).rejects.toThrow(/base-commit/);
+  });
 });

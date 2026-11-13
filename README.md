@@ -49,19 +49,19 @@ All events are stored in an append-only JSONL audit log. Secrets are redacted be
 See [SECURITY.md](SECURITY.md) for the reporting channel and known
 limitations, and for how the scope and push guards work.
 
-| Control                                                | Protection                                                                                                                       |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| Argument-based process execution without `shell: true` | Prevents command injection structurally, without relying on text sanitization                                                    |
-| Binary allowlist                                       | Restricts which tools agents can execute                                                                                         |
-| Git subcommand rules                                   | Blocks destructive or high-risk Git operations                                                                                   |
-| Force-push blocking                                    | Rejects `--force` and `--force-with-lease`                                                                                       |
-| Main branch protection                                 | Pushes only reach explicit branches under the agent prefix; `main`, `master`, `baseBranch` and `origin/HEAD` are blocked         |
-| Scope guard on the actual diff                         | Changed, deleted, renamed and untracked files are checked against `allowedPaths`/`disallowedPaths` before review and before push |
-| Worktree requirement                                   | Rejects mutating Git operations outside an isolated worktree                                                                     |
-| Secret scanning                                        | Scans plans and diffs and blocks pull-request creation when secrets are detected                                                 |
-| Audit-log redaction                                    | Removes secrets before events are stored                                                                                         |
-| Sandbox hard block                                     | Rejects the Codex `danger-full-access` configuration during loading, regardless of environment variables                         |
-| Runtime environment verification                       | `doctor` checks the actual binaries and never assumes that a provider or dependency is available                                 |
+| Control                                                | Protection                                                                                                                                                     |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Argument-based process execution without `shell: true` | Prevents command injection structurally, without relying on text sanitization                                                                                  |
+| Binary allowlist                                       | Restricts which tools agents can execute                                                                                                                       |
+| Git subcommand rules                                   | Blocks destructive or high-risk Git operations                                                                                                                 |
+| Force-push blocking                                    | Rejects `--force` and `--force-with-lease`                                                                                                                     |
+| Main branch protection                                 | Pushes only reach explicit branches under the agent prefix; `main`, `master`, `baseBranch` and `origin/HEAD` are blocked                                       |
+| Scope guard on the actual diff                         | Changed, deleted, renamed and untracked files, and every commit on its own, are checked against `allowedPaths`/`disallowedPaths` before review and before push |
+| Worktree requirement                                   | Rejects mutating Git operations outside an isolated worktree                                                                                                   |
+| Secret scanning                                        | Scans plans and diffs and blocks pull-request creation when secrets are detected                                                                               |
+| Audit-log redaction                                    | Removes secrets before events are stored                                                                                                                       |
+| Sandbox hard block                                     | Rejects the Codex `danger-full-access` configuration during loading, regardless of environment variables                                                       |
+| Runtime environment verification                       | `doctor` checks the actual binaries and never assumes that a provider or dependency is available                                                               |
 
 The following Git operations are always blocked:
 

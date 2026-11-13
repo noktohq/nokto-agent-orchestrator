@@ -2,6 +2,7 @@ import { runClaude } from '../providers/claude.js';
 import { runGemini } from '../providers/gemini.js';
 import { runDoctor } from '../providers/detect.js';
 import { runCommand } from '../providers/exec.js';
+import { GIT_SAFETY_ARGS, inspectionGitEnv } from '../security/gitIntegrity.js';
 import type { OrchestratorConfig } from '../config.js';
 import type { ProviderName, ReviewResult, TaskContract, TaskPlan } from '../types.js';
 
@@ -11,17 +12,43 @@ const REVIEW_JSON_SCHEMA_HINT = `Svar KUN med gyldig JSON på nøyaktig denne fo
   "findings": [{"severity": "blocker"|"major"|"minor"|"info", "file": "relative/sti.ts"|null, "summary": "..."}]
 }`;
 
+/**
+ * Flagg som gjør at diffen viser det som faktisk ligger i commitene: `--text` overstyrer
+ * `-diff`/`binary` i .gitattributes (også `.git/info/attributes`, som agenten kan
+ * skrive), og textconv, eksterne diff-programmer, rename-sammenslåing og
+ * `diff.ignoreSubmodules` er av. Kjøres med inspectionGitEnv() (ingen replace-objekter).
+ */
+export const FAITHFUL_DIFF_FLAGS: readonly string[] = [
+  '--text',
+  '--no-textconv',
+  '--no-ext-diff',
+  '--no-renames',
+  '--ignore-submodules=none',
+  '--no-relative',
+  '--no-color',
+];
+
+/**
+ * Diffen gjennomgangen ser. Med `baseSha` (commiten worktreet ble laget fra) brukes den;
+ * uten faller den tilbake til `origin/<baseBranch>...HEAD`, som agenten kan flytte.
+ */
 export async function diffAgainstBase(
   config: OrchestratorConfig,
   worktreePath: string,
-  baseBranch: string
+  baseBranch: string,
+  baseSha?: string
 ): Promise<string> {
-  const res = await runCommand(['git', 'diff', `origin/${baseBranch}...HEAD`], {
-    cwd: worktreePath,
-    repoRoot: worktreePath,
-    timeoutMs: 30_000,
-    readOnly: true,
-  });
+  const range = baseSha !== undefined ? [baseSha, 'HEAD'] : [`origin/${baseBranch}...HEAD`];
+  const res = await runCommand(
+    ['git', ...GIT_SAFETY_ARGS, 'diff', ...FAITHFUL_DIFF_FLAGS, ...range, '--'],
+    {
+      cwd: worktreePath,
+      repoRoot: worktreePath,
+      timeoutMs: 30_000,
+      readOnly: true,
+      env: inspectionGitEnv(),
+    }
+  );
   return res.stdout;
 }
 
@@ -45,7 +72,7 @@ function buildReviewPrompt(contract: TaskContract, plan: TaskPlan, diff: string)
     ``,
     REVIEW_JSON_SCHEMA_HINT,
     ``,
-    `--- DIFF (git diff origin/${contract.git.baseBranch}...HEAD) ---`,
+    `--- DIFF (git diff <base-commit> HEAD, base fra origin/${contract.git.baseBranch}) ---`,
     diff.length > 60_000
       ? `${diff.slice(0, 60_000)}\n... [diff kuttet, ${diff.length} tegn totalt]`
       : diff,
@@ -133,7 +160,8 @@ export async function reviewCode(
   config: OrchestratorConfig,
   contract: TaskContract,
   plan: TaskPlan,
-  worktreePath: string
+  worktreePath: string,
+  baseSha?: string
 ): Promise<ReviewResult> {
   const doctor = await runDoctor(config);
   const available = new Set(doctor.filter((d) => d.available).map((d) => d.provider));
@@ -154,7 +182,7 @@ export async function reviewCode(
     };
   }
 
-  const diff = await diffAgainstBase(config, worktreePath, contract.git.baseBranch);
+  const diff = await diffAgainstBase(config, worktreePath, contract.git.baseBranch, baseSha);
   if (diff.trim() === '') {
     return {
       reviewer,

@@ -8,13 +8,22 @@ phase: v1 i bruk, dokumentert på engelsk
 now: null
 next:
   - Gjennomgå og flett PR-en for nokto/scope-vakt (scope-vakt på faktisk diff + push-vakt)
-  - Bruk registrert base-commit også i hemmelighetsskanningen før push og i reviewer-diffen
+  - 'Vurder egen OS-bruker eller container uten push-legitimasjon for implementereren (push-vakten
+    begrenser ikke agentprosessen, se SECURITY.md)'
   - Følg opp 2 moderate pnpm audit-advisories i transitive qs (via @google/genai → @modelcontextprotocol/sdk
     → express)
 waiting: []
 blockers: []
 decisions_needed: []
 done:
+  - what: 'Retting etter uavhengig gjennomgang av scope-vakten: låst base per oppgave hentet med egen
+      refspec, base bekreftet i remote før push, fingeravtrykk av git-konfig, replace-refs/grafts
+      avvist, hver commit sjekket og merges avvist, --ignore-submodules=none, skanning/review med
+      --text mot base-commiten, streng push-refspec, prefiks må slutte på /, disallowedPaths uten
+      skille mellom store/små bokstaver, Unicode-krav, hele .github/ hard-blokkert, glob ** rettet,
+      byte-basert fangst i runCommand, agenten uten tokens'
+    at: '2026-11-13'
+    evidence: 'grenen nokto/scope-vakt (ikke flettet); vitest 23 filer, 195 tester grønne'
   - what: 'Scope-vakt på faktisk diff (før gjennomgang, hvert forsøk, før push) og push-vakt mot main, master,
       baseBranch og origin/HEAD med krav om agentprefiks'
     at: '2026-11-13'

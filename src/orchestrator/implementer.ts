@@ -27,6 +27,31 @@ const IMPLEMENTER_ALLOWED_TOOLS = [
   'Bash(python3 *)',
 ];
 
+/**
+ * Git-operasjoner implementereren aldri får kjøre: push (det gjør orkestratoren etter
+ * vaktene), og alt som endrer delt git-tilstand orkestratorens egne git-kall leser
+ * (konfig, remotes, refs, replace-objekter). Globale opsjoner (`git -c …`, `git -C …`)
+ * er sperret så de ikke kan brukes til å skjule subkommandoen. Dette er et ekstra lag:
+ * `node`/`python3` kan fortsatt skrive i .git direkte, så orkestratoren stoler ikke på
+ * det (se SECURITY.md).
+ */
+const IMPLEMENTER_DISALLOWED_TOOLS = [
+  'Bash(git push *)',
+  'Bash(git push)',
+  'Bash(git config *)',
+  'Bash(git remote *)',
+  'Bash(git update-ref *)',
+  'Bash(git replace *)',
+  'Bash(git symbolic-ref *)',
+  'Bash(git fetch *)',
+  'Bash(git worktree *)',
+  'Bash(git submodule *)',
+  'Bash(git filter-branch *)',
+  'Bash(git -c *)',
+  'Bash(git -C *)',
+  'Bash(git --*)',
+];
+
 function buildImplementationPrompt(
   contract: TaskContract,
   plan: TaskPlan,
@@ -93,6 +118,7 @@ export async function implementTask(
         repoRoot: worktreePath,
         permissionMode: 'acceptEdits',
         allowedTools: IMPLEMENTER_ALLOWED_TOOLS,
+        disallowedTools: IMPLEMENTER_DISALLOWED_TOOLS,
       });
       return {
         ok: res.ok,

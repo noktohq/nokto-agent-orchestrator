@@ -81,12 +81,12 @@ describe('assertCommandAllowed', () => {
     ).toThrow(CommandNotAllowedError);
   });
 
-  it('tillater push mot en agent-branch', () => {
+  it('tillater push av en commit-id mot en agent-branch', () => {
     expect(() =>
-      assertCommandAllowed(['git', 'push', '-u', 'origin', 'agent/task-1'], {
-        cwd: worktree,
-        repoRoot,
-      })
+      assertCommandAllowed(
+        ['git', 'push', '-u', 'origin', `${'c'.repeat(40)}:refs/heads/agent/task-1`],
+        { cwd: worktree, repoRoot }
+      )
     ).not.toThrow();
   });
 
@@ -123,8 +123,8 @@ describe('assertCommandAllowed', () => {
     });
 
     it('blokkerer kontraktens baseBranch og origin/HEAD fra policyen', () => {
-      expect(push('origin', 'develop')).toThrow(/beskyttet gren/);
-      expect(push('origin', 'trunk')).toThrow(/beskyttet gren/);
+      expect(push('origin', `${'c'.repeat(40)}:refs/heads/develop`)).toThrow(/beskyttet gren/);
+      expect(push('origin', `${'c'.repeat(40)}:refs/heads/trunk`)).toThrow(/beskyttet gren/);
     });
 
     it('blokkerer refspec-varianter mot en beskyttet gren', () => {
@@ -169,12 +169,13 @@ describe('assertCommandAllowed', () => {
     });
 
     it('krever agentens grenprefiks på målet', () => {
-      expect(push('origin', 'feature/x')).toThrow(/grenprefiks/);
-      expect(push('origin', 'agent/')).toThrow(CommandNotAllowedError);
-      expect(push('origin', 'HEAD:refs/heads/release')).toThrow(/grenprefiks/);
-      expect(push('origin', 'agent/../main')).toThrow(CommandNotAllowedError);
+      const sha = 'c'.repeat(40);
+      expect(push('origin', `${sha}:refs/heads/feature/x`)).toThrow(/grenprefiks/);
+      expect(push('origin', `${sha}:refs/heads/agent/`)).toThrow(CommandNotAllowedError);
+      expect(push('origin', `${sha}:refs/heads/release`)).toThrow(/grenprefiks/);
+      expect(push('origin', `${sha}:refs/heads/agent/../main`)).toThrow(CommandNotAllowedError);
       expect(() =>
-        assertCommandAllowed(['git', 'push', 'origin', 'nokto/x'], {
+        assertCommandAllowed(['git', 'push', 'origin', `${sha}:refs/heads/nokto/x`], {
           cwd: worktree,
           repoRoot,
           pushPolicy: { protectedBranches: [], branchPrefix: 'nokto/' },
@@ -182,18 +183,57 @@ describe('assertCommandAllowed', () => {
       ).not.toThrow();
     });
 
-    it('tillater push av en commit til en eksplisitt agentgren', () => {
+    it('krever at grenprefikset slutter på "/"', () => {
+      const sha = 'c'.repeat(40);
+      for (const branchPrefix of ['release', 'r', 'agent', '/']) {
+        expect(
+          () =>
+            assertCommandAllowed(['git', 'push', 'origin', `${sha}:refs/heads/release-1`], {
+              cwd: worktree,
+              repoRoot,
+              pushPolicy: { protectedBranches: [], branchPrefix },
+            }),
+          branchPrefix
+        ).toThrow(/slutte på/);
+      }
+    });
+
+    it('tillater bare <full commit-id>:refs/heads/<agentgren>', () => {
       expect(push('origin', `${'c'.repeat(40)}:refs/heads/agent/task-1-1`)).not.toThrow();
-      expect(push('-u', 'origin', 'agent/task-1-1')).not.toThrow();
-      expect(push('--no-verify', 'origin', 'HEAD:refs/heads/agent/task-1-1')).not.toThrow();
+      expect(push('origin', `${'d'.repeat(64)}:refs/heads/agent/task-1-1`)).not.toThrow();
+      expect(
+        push('--no-verify', 'origin', `${'c'.repeat(40)}:refs/heads/agent/task-1-1`)
+      ).not.toThrow();
+    });
+
+    it('blokkerer refspec uten kolon: remote.origin.push kan sende den til main', () => {
+      expect(push('origin', 'agent/x')).toThrow(/uten eksplisitt mål/);
+      expect(push('-u', 'origin', 'agent/task-1-1')).toThrow(/uten eksplisitt mål/);
+      expect(push('origin', 'refs/heads/agent/x')).toThrow(/uten eksplisitt mål/);
+    });
+
+    it('blokkerer symbolske kilder og mål uten refs/heads/ (git DWIM)', () => {
+      expect(push('origin', 'HEAD:agent/x')).toThrow(/refs\/heads/);
+      expect(push('origin', 'HEAD:refs/heads/agent/x')).toThrow(/full commit-id/);
+      expect(push('origin', 'agent/x:refs/heads/agent/x')).toThrow(/full commit-id/);
+      expect(push('origin', `${'c'.repeat(12)}:refs/heads/agent/x`)).toThrow(/full commit-id/);
+      expect(push('origin', `${'C'.repeat(40)}:refs/heads/agent/x`)).toThrow(/full commit-id/);
+      expect(push('origin', `${'c'.repeat(40)}:agent/x`)).toThrow(/refs\/heads/);
     });
 
     it('globale git-opsjoner skjuler ikke subkommandoen', () => {
       expect(() =>
-        assertCommandAllowed(['git', '-c', 'core.hooksPath=/dev/null', 'push', 'origin', 'main'], {
-          cwd: worktree,
-          repoRoot,
-        })
+        assertCommandAllowed(
+          [
+            'git',
+            '-c',
+            'core.hooksPath=/dev/null',
+            'push',
+            'origin',
+            `${'c'.repeat(40)}:refs/heads/main`,
+          ],
+          { cwd: worktree, repoRoot }
+        )
       ).toThrow(/beskyttet gren/);
       expect(() =>
         assertCommandAllowed(['git', '-c', 'core.hooksPath=/dev/null', 'reset', '--hard'], {

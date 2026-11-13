@@ -68,13 +68,21 @@ describe('resolvePushPolicy (ekte git)', () => {
     expect(policy.branchPrefix).toBe('agent/');
 
     const ctx = { cwd: resolve(root, 'wt'), repoRoot: config.repoRoot, pushPolicy: policy };
-    for (const target of ['trunk', 'HEAD:refs/heads/trunk', 'develop', 'main', 'master']) {
+    const sha = 'c'.repeat(40);
+    for (const target of [
+      'trunk',
+      'HEAD:refs/heads/trunk',
+      `${sha}:refs/heads/trunk`,
+      `${sha}:refs/heads/develop`,
+      `${sha}:refs/heads/main`,
+      `${sha}:refs/heads/master`,
+    ]) {
       expect(() => assertCommandAllowed(['git', 'push', 'origin', target], ctx), target).toThrow(
         CommandNotAllowedError
       );
     }
     expect(() =>
-      assertCommandAllowed(['git', 'push', 'origin', 'HEAD:refs/heads/agent/x-1'], ctx)
+      assertCommandAllowed(['git', 'push', 'origin', `${sha}:refs/heads/agent/x-1`], ctx)
     ).not.toThrow();
   });
 
@@ -88,8 +96,8 @@ describe('resolvePushPolicy (ekte git)', () => {
 
     // trunk er standardgrenen, men kan ikke leses — prefikskravet stopper pushen likevel.
     const ctx = { cwd: resolve(root, 'wt'), repoRoot: config.repoRoot, pushPolicy: policy };
-    expect(() => assertCommandAllowed(['git', 'push', 'origin', 'trunk'], ctx)).toThrow(
-      /grenprefiks/
-    );
+    expect(() =>
+      assertCommandAllowed(['git', 'push', 'origin', `${'c'.repeat(40)}:refs/heads/trunk`], ctx)
+    ).toThrow(/grenprefiks/);
   });
 });

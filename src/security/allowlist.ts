@@ -205,15 +205,27 @@ function forceError(flag: string): CommandNotAllowedError {
   );
 }
 
+/** Kilde i en push-refspec: en full commit-id (SHA-1 eller SHA-256). */
+const PUSH_SRC_SHA_RE = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+
 /**
- * Push-vakt. Strengeste variant: et push-mål må være en eksplisitt gren under
- * agentens grenprefiks, og aldri en beskyttet gren (main, master, kontraktens
- * baseBranch, origin/HEAD). Alt som lar git selv velge mål (ingen refspec, `HEAD`
- * uten mål, `--all`, `--mirror`, mønster-refspecs), sletting, force og tags nektes.
+ * Push-vakt. Strengeste variant: hver refspec må ha nøyaktig formen
+ * `<full commit-id>:refs/heads/<agentprefiks>…`, slik orkestratoren selv pusher. Målet
+ * kan aldri være en beskyttet gren (main, master, kontraktens baseBranch, origin/HEAD).
+ *
+ * Alt som lar git selv velge eller tolke målet nektes: ingen refspec, refspec uten
+ * kolon (`remote.origin.push` i konfig kan sende `agent/x` til `main`), symbolske
+ * kilder (`HEAD`, grennavn), mål uten `refs/heads/` (DWIM kan treffe en tag på
+ * remote), `--all`, `--mirror`, mønster-refspecs, sletting, force og tags.
  */
 function assertPushAllowed(args: readonly string[], ctx: CommandContext): void {
   const policy = ctx.pushPolicy;
   const prefix = policy?.branchPrefix ?? DEFAULT_PUSH_BRANCH_PREFIX;
+  if (!prefix.endsWith('/') || prefix.length < 2) {
+    throw new CommandNotAllowedError(
+      `Grenprefikset "${prefix}" må slutte på "/" (f.eks. "agent/"): ellers kan push treffe grener som "${prefix}…".`
+    );
+  }
   const protectedSet = new Set(
     [...ALWAYS_PROTECTED_BRANCHES, ...(policy?.protectedBranches ?? []), 'HEAD'].map((b) =>
       b.toLowerCase()
@@ -264,25 +276,25 @@ function assertPushAllowed(args: readonly string[], ctx: CommandContext): void {
       throw new CommandNotAllowedError(`git push med mønster-refspec "${refspec}" er blokkert.`);
     }
     const colon = refspec.indexOf(':');
-    const src = colon === -1 ? refspec : refspec.slice(0, colon);
-    const dst = colon === -1 ? refspec : refspec.slice(colon + 1);
-    if (src === '') {
+    if (colon === 0) {
       throw new CommandNotAllowedError(`git push "${refspec}" sletter en remote-ref — blokkert.`);
     }
+    if (colon === -1) {
+      throw new CommandNotAllowedError(
+        `git push-refspec "${refspec}" uten eksplisitt mål er blokkert — git-konfigurasjonen (remote.origin.push) kan velge et annet mål.`
+      );
+    }
+    const src = refspec.slice(0, colon);
+    const dst = refspec.slice(colon + 1);
     if (dst === '' || dst.includes(':')) {
       throw new CommandNotAllowedError(`git push-refspec "${refspec}" er ugyldig.`);
     }
-
-    let branch: string;
-    if (dst.startsWith('refs/heads/')) {
-      branch = dst.slice('refs/heads/'.length);
-    } else if (dst.startsWith('refs/')) {
+    if (!dst.startsWith('refs/heads/')) {
       throw new CommandNotAllowedError(
-        `git push mot "${dst}" er blokkert — kun grener (refs/heads/) er tillatt.`
+        `git push mot "${dst}" er blokkert — målet må være en full grenref (refs/heads/…).`
       );
-    } else {
-      branch = dst;
     }
+    const branch = dst.slice('refs/heads/'.length);
 
     if (protectedSet.has(branch.toLowerCase())) {
       throw new CommandNotAllowedError(
@@ -302,6 +314,11 @@ function assertPushAllowed(args: readonly string[], ctx: CommandContext): void {
     if (!branch.startsWith(prefix) || branch.length <= prefix.length) {
       throw new CommandNotAllowedError(
         `git push mot "${branch}" er blokkert — målet må være en gren under agentens grenprefiks "${prefix}".`
+      );
+    }
+    if (!PUSH_SRC_SHA_RE.test(src)) {
+      throw new CommandNotAllowedError(
+        `git push fra "${src}" er blokkert — kilden må være en full commit-id (den sjekkede commiten).`
       );
     }
   }

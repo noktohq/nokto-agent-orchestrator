@@ -1,7 +1,8 @@
-import { lstatSync, realpathSync } from 'node:fs';
-import { dirname, join, sep } from 'node:path';
+import { existsSync, lstatSync, realpathSync } from 'node:fs';
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { MAX_CAPTURE_BYTES, runCommand } from '../providers/exec.js';
 import { matchesAnyGlob } from './glob.js';
+import { inspectionGitEnv } from './gitIntegrity.js';
 import type { OrchestratorConfig } from '../config.js';
 import type { ProviderInvocationResult, TaskContract } from '../types.js';
 
@@ -16,16 +17,31 @@ import type { ProviderInvocationResult, TaskContract } from '../types.js';
  * Alt som ikke kan fastslås sikkert, avvises (fail closed).
  */
 
-/** Stier som aldri kan endres av en agent, uansett allowedPaths. */
+/**
+ * Stier som aldri kan endres av en agent, uansett allowedPaths.
+ *
+ * - git-metadata og `.gitattributes` (kan skjule innhold for diff/skanning og velge
+ *   filter-drivere), `.gitmodules`
+ * - hele `.github/` (workflows, lokale actions, CODEOWNERS, dependabot) og CODEOWNERS
+ *   andre steder: kjører i CI eller styrer hvem som må godkjenne
+ * - `.husky/` (git-hooks hos utviklere) og `.npmrc` (registry/legitimasjon)
+ * - hemmelighetsfiler (`.env`, `*.env`, `.env.*`, `config.json`)
+ */
 export const HARD_BLOCKED_GLOBS: readonly string[] = [
   '.git/**',
   '**/.git/**',
-  '.github/workflows/**',
-  '**/.env',
-  '**/.env.*',
-  '**/config.json',
+  '**/.gitattributes',
   '.gitmodules',
   '**/.gitmodules',
+  '.github/**',
+  'CODEOWNERS',
+  'docs/CODEOWNERS',
+  '.husky/**',
+  '**/.npmrc',
+  '**/.env',
+  '**/*.env',
+  '**/.env.*',
+  '**/config.json',
 ];
 
 /** Alltid tillatt selv om de matcher HARD_BLOCKED_GLOBS, f.eks. `.env.example`. */
@@ -38,6 +54,7 @@ export type ScopeRule =
   | 'hard_blocked'
   | 'symlink'
   | 'submodule'
+  | 'merge_commit'
   | 'escapes_worktree';
 
 export interface ScopeViolation {
@@ -72,7 +89,19 @@ export class ScopeInspectionError extends Error {
  */
 export function unsafePathReason(path: string): string | null {
   if (path === '') return 'tom sti';
-  if (/[\u0000-\u001f\u007f]/.test(path)) return 'kontrolltegn i stien';
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(path)) return 'kontrolltegn i stien';
+  // Retningsstyring, nullbredde og BOM: kan få en sti til å se annerledes ut i PR-visningen.
+  if (/[\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/.test(path)) {
+    return 'usynlige tegn eller retningsstyring i stien';
+  }
+  // U+FFFD: git-output som ikke var gyldig UTF-8. Enslige surrogater: ugyldig Unicode.
+  if (
+    path.includes('\ufffd') ||
+    /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(path)
+  ) {
+    return 'ugyldig Unicode i stien';
+  }
+  if (path !== path.normalize('NFC')) return 'stien er ikke NFC-normalisert';
   if (path.startsWith('/')) return 'absolutt sti';
   if (path.includes('\\')) return 'backslash i stien';
   if (/^[a-zA-Z]:/.test(path)) return 'Windows-drev i stien';
@@ -83,11 +112,25 @@ export function unsafePathReason(path: string): string | null {
   return null;
 }
 
+/**
+ * Bretter en sti eller et mønster for matching som ikke skiller mellom store og små
+ * bokstaver eller kompatibilitetsformer: NFKC + store→små bokstaver via store bokstaver,
+ * så f.eks. `ſ` (U+017F) blir `s` og `.GitHub` blir `.github`.
+ */
+export function foldPath(path: string): string {
+  return path.normalize('NFKC').toUpperCase().toLowerCase();
+}
+
+function matchesAnyFolded(path: string, patterns: readonly string[]): boolean {
+  return matchesAnyGlob(foldPath(path), patterns.map(foldPath));
+}
+
 export function isHardBlockedPath(path: string): boolean {
-  // Små bokstaver: `.GIT/` og `.GitHub/Workflows/` på filsystemer som ikke skiller
-  // mellom store og små bokstaver skal ikke slippe forbi.
-  const lower = path.toLowerCase();
-  return matchesAnyGlob(lower, HARD_BLOCKED_GLOBS) && !matchesAnyGlob(lower, HARD_BLOCK_EXCEPTIONS);
+  // Uten skille mellom store og små bokstaver: `.GIT/` og `.GitHub/Workflows/` på
+  // filsystemer som ikke skiller (macOS, Windows) skal ikke slippe forbi.
+  return (
+    matchesAnyFolded(path, HARD_BLOCKED_GLOBS) && !matchesAnyFolded(path, HARD_BLOCK_EXCEPTIONS)
+  );
 }
 
 /**
@@ -117,7 +160,9 @@ export function checkPathAgainstScope(
       reason: `Filsti "${path}" er utenfor tillatt scope (${scope.allowedPaths.join(', ')}).`,
     });
   }
-  if (matchesAnyGlob(path, scope.disallowedPaths)) {
+  // allowedPaths matches eksakt (strengest), disallowedPaths uten skille mellom store og
+  // små bokstaver: `src/Secrets/k.ts` havner i `src/secrets/` på macOS og Windows.
+  if (matchesAnyFolded(path, scope.disallowedPaths)) {
     violations.push({
       path,
       rule: 'disallowed',
@@ -138,6 +183,8 @@ export function checkPathAgainstScope(
 const CAPTURE_SAFETY_MARGIN = 64 * 1024;
 const GIT_TIMEOUT_MS = 30_000;
 const SHA_RE = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+/** Flere commits enn dette sjekkes ikke enkeltvis; oppgaven feiler (fail closed). */
+export const MAX_COMMITS_CHECKED = 500;
 
 /** Minste form av en worktree-referanse — kompatibel med WorktreeHandle. */
 export interface ScopeWorktree {
@@ -160,14 +207,20 @@ async function git(
   worktreePath: string
 ): Promise<ProviderInvocationResult> {
   try {
-    // core.fsmonitor=false: et fsmonitor-program agenten har satt i git-konfigurasjonen
-    // skal ikke kjøres av orkestratoren.
-    return await runCommand(['git', '-c', 'core.fsmonitor=false', ...args], {
-      cwd: worktreePath,
-      repoRoot: config.repoRoot,
-      timeoutMs: GIT_TIMEOUT_MS,
-      readOnly: true,
-    });
+    // core.fsmonitor=false og hooksPath=/dev/null: et program agenten har satt i
+    // git-konfigurasjonen skal ikke kjøres av orkestratoren. inspectionGitEnv(): ingen
+    // replace-objekter (refs/replace kan ellers vise et annet tre enn det som pushes),
+    // ingen system-/global konfig og ingen arvede GIT_*-variabler.
+    return await runCommand(
+      ['git', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', ...args],
+      {
+        cwd: worktreePath,
+        repoRoot: config.repoRoot,
+        timeoutMs: GIT_TIMEOUT_MS,
+        readOnly: true,
+        env: inspectionGitEnv(),
+      }
+    );
   } catch (err) {
     throw new ScopeInspectionError(
       `git ${args[0] ?? ''} kunne ikke kjøres: ${err instanceof Error ? err.message : String(err)}`
@@ -184,10 +237,16 @@ function requireOk(res: ProviderInvocationResult, what: string): void {
 }
 
 /** Kaster dersom git-output kan være avkortet. */
-function requireComplete(stdout: string, what: string, nulTerminated: boolean): void {
-  if (stdout.length >= MAX_CAPTURE_BYTES - CAPTURE_SAFETY_MARGIN) {
+function requireComplete(
+  res: Pick<ProviderInvocationResult, 'stdout' | 'stdoutTruncated'>,
+  what: string,
+  nulTerminated: boolean
+): void {
+  const stdout = res.stdout;
+  const bytes = Buffer.byteLength(stdout, 'utf8');
+  if (res.stdoutTruncated === true || bytes >= MAX_CAPTURE_BYTES - CAPTURE_SAFETY_MARGIN) {
     throw new ScopeInspectionError(
-      `${what}: output er nær fangstgrensen (${stdout.length} tegn) og kan være avkortet.`
+      `${what}: output er nær fangstgrensen (${bytes} byte) og kan være avkortet.`
     );
   }
   if (nulTerminated && stdout !== '' && !stdout.endsWith('\0')) {
@@ -206,7 +265,7 @@ async function gitSha(
     worktreePath
   );
   requireOk(res, `git rev-parse ${rev}`);
-  requireComplete(res.stdout, `git rev-parse ${rev}`, false);
+  requireComplete(res, `git rev-parse ${rev}`, false);
   const sha = res.stdout.trim();
   if (!SHA_RE.test(sha)) {
     throw new ScopeInspectionError(`git rev-parse ${rev} ga ikke en gyldig commit-id.`);
@@ -274,6 +333,92 @@ function escapesWorktree(rootReal: string, worktreePath: string, relPath: string
   return !isInside(rootReal, real);
 }
 
+async function gitCommonDirOf(config: OrchestratorConfig, wt: string): Promise<string> {
+  const res = await git(['rev-parse', '--git-common-dir'], config, wt);
+  requireOk(res, 'git rev-parse --git-common-dir');
+  const dir = res.stdout.trim();
+  if (dir === '') throw new ScopeInspectionError('Fant ikke repoets git-katalog.');
+  return isAbsolute(dir) ? dir : resolve(wt, dir);
+}
+
+/**
+ * Replace-refs og grafts lar git vise andre trær eller en annen historikk enn den som
+ * pushes. Replace-objekter er av i alle vaktens git-kall (GIT_NO_REPLACE_OBJECTS), men
+ * finnes de, er repoet tuklet med og oppgaven skal stoppe. Grafts påvirkes ikke av
+ * GIT_NO_REPLACE_OBJECTS og avvises derfor alltid.
+ */
+async function assertNoHistoryOverrides(config: OrchestratorConfig, wt: string): Promise<void> {
+  const replace = await git(['for-each-ref', '--format=%(refname)', 'refs/replace/'], config, wt);
+  requireOk(replace, 'git for-each-ref refs/replace/');
+  if (replace.stdout.trim() !== '') {
+    throw new ScopeInspectionError(
+      `Repoet har replace-refs (${replace.stdout.trim().split('\n')[0] ?? ''}): diff og push kan vise ulike trær.`
+    );
+  }
+  const common = await gitCommonDirOf(config, wt);
+  if (existsSync(join(common, 'info', 'grafts'))) {
+    throw new ScopeInspectionError('Repoet har info/grafts: historikken kan være omskrevet.');
+  }
+}
+
+interface CommitInspection {
+  entries: RawEntry[];
+  merges: string[];
+}
+
+/** Stier og moduser i hver enkelt commit i base..head, og merge-commits. */
+async function inspectCommits(
+  config: OrchestratorConfig,
+  wt: string,
+  baseSha: string,
+  headSha: string
+): Promise<CommitInspection> {
+  const list = await git(['rev-list', '--parents', `${baseSha}..${headSha}`, '--'], config, wt);
+  requireOk(list, 'git rev-list');
+  requireComplete(list, 'git rev-list', false);
+  const lines = list.stdout.split('\n').filter((l) => l !== '');
+  if (lines.length > MAX_COMMITS_CHECKED) {
+    throw new ScopeInspectionError(
+      `Agentgrenen har ${lines.length} commits; høyst ${MAX_COMMITS_CHECKED} sjekkes enkeltvis.`
+    );
+  }
+
+  const entries: RawEntry[] = [];
+  const merges: string[] = [];
+  for (const line of lines) {
+    const ids = line.split(' ');
+    if (!ids.every((id) => SHA_RE.test(id))) {
+      throw new ScopeInspectionError(`git rev-list: uventet format i "${line.slice(0, 80)}".`);
+    }
+    const [commit, ...parents] = ids as [string, ...string[]];
+    if (parents.length !== 1) {
+      // Merge eller rotcommit: aldri en lineær etterkommer av basen.
+      merges.push(commit);
+      continue;
+    }
+    const what = `git diff-tree ${commit.slice(0, 12)}`;
+    const res = await git(
+      [
+        'diff-tree',
+        '-r',
+        '-z',
+        '--raw',
+        '--no-renames',
+        '--ignore-submodules=none',
+        parents[0] as string,
+        commit,
+        '--',
+      ],
+      config,
+      wt
+    );
+    requireOk(res, what);
+    requireComplete(res, what, true);
+    entries.push(...parseRaw(res.stdout, what));
+  }
+  return { entries, merges };
+}
+
 /**
  * Håndhever kontraktens scope mot det implementereren faktisk har endret i worktreet.
  *
@@ -317,6 +462,9 @@ export async function assertDiffWithinScope(
     }
   }
 
+  // Først: replace-refs/grafts kan endre både trær og historikk vakten ser.
+  await assertNoHistoryOverrides(config, wt);
+
   // Det som pushes er agentgrenen. HEAD må være den, ellers kan sjekk og push se
   // forskjellige commits.
   const headSha = await gitSha(config, wt, 'HEAD');
@@ -335,7 +483,18 @@ export async function assertDiffWithinScope(
   }
   requireOk(ancestor, 'git merge-base --is-ancestor');
 
-  const diffBase = ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '-z'];
+  // --ignore-submodules=none: `diff.ignoreSubmodules=all` i delt konfig skjuler ellers
+  // gitlinks fra både --raw og --name-only. --no-relative: `diff.relative` skal ikke
+  // begrense diffen til en undermappe.
+  const diffBase = [
+    'diff',
+    '--no-ext-diff',
+    '--no-textconv',
+    '--no-renames',
+    '--ignore-submodules=none',
+    '--no-relative',
+    '-z',
+  ];
 
   // Navn: commits (base..HEAD) og arbeidskopi (base..worktree, inkl. staged).
   const committedNames = await git(
@@ -344,24 +503,24 @@ export async function assertDiffWithinScope(
     wt
   );
   requireOk(committedNames, 'git diff --name-only (commits)');
-  requireComplete(committedNames.stdout, 'git diff --name-only (commits)', true);
+  requireComplete(committedNames, 'git diff --name-only (commits)', true);
 
   const worktreeNames = await git([...diffBase, '--name-only', baseSha, '--'], config, wt);
   requireOk(worktreeNames, 'git diff --name-only (arbeidskopi)');
-  requireComplete(worktreeNames.stdout, 'git diff --name-only (arbeidskopi)', true);
+  requireComplete(worktreeNames, 'git diff --name-only (arbeidskopi)', true);
 
   const untracked = await git(['ls-files', '--others', '--exclude-standard', '-z'], config, wt);
   requireOk(untracked, 'git ls-files --others');
-  requireComplete(untracked.stdout, 'git ls-files --others', true);
+  requireComplete(untracked, 'git ls-files --others', true);
 
   // Modus: symlenker (120000) og submoduler (160000).
   const committedRaw = await git([...diffBase, '--raw', baseSha, headSha, '--'], config, wt);
   requireOk(committedRaw, 'git diff --raw (commits)');
-  requireComplete(committedRaw.stdout, 'git diff --raw (commits)', true);
+  requireComplete(committedRaw, 'git diff --raw (commits)', true);
 
   const worktreeRaw = await git([...diffBase, '--raw', baseSha, '--'], config, wt);
   requireOk(worktreeRaw, 'git diff --raw (arbeidskopi)');
-  requireComplete(worktreeRaw.stdout, 'git diff --raw (arbeidskopi)', true);
+  requireComplete(worktreeRaw, 'git diff --raw (arbeidskopi)', true);
 
   const rawEntries = [
     ...parseRaw(committedRaw.stdout, 'git diff --raw (commits)'),
@@ -369,23 +528,27 @@ export async function assertDiffWithinScope(
   ];
 
   const untrackedPaths = splitNul(untracked.stdout);
-  const files = [
-    ...new Set([
-      ...splitNul(committedNames.stdout),
-      ...splitNul(worktreeNames.stdout),
-      ...untrackedPaths,
-    ]),
-  ].sort();
+  const netFiles = new Set([
+    ...splitNul(committedNames.stdout),
+    ...splitNul(worktreeNames.stdout),
+    ...untrackedPaths,
+  ]);
 
   // --raw og --name-only skal beskrive de samme stiene; avvik betyr at noe er galt.
-  const fileSet = new Set(files);
   for (const e of rawEntries) {
-    if (!fileSet.has(e.path)) {
+    if (!netFiles.has(e.path)) {
       throw new ScopeInspectionError(
         `git diff --raw rapporterte "${e.path}", som mangler i --name-only (inkonsistent output).`
       );
     }
   }
+
+  // Hver commit som pushes, ikke bare nettodiffen: en commit som legger til `.env` og en
+  // senere som fjerner den, gir tom nettodiff, men begge havner på remote.
+  const perCommit = await inspectCommits(config, wt, baseSha, headSha);
+  rawEntries.push(...perCommit.entries);
+
+  const files = [...new Set([...netFiles, ...perCommit.entries.map((e) => e.path)])].sort();
 
   if (files.length === 0) {
     throw new ScopeInspectionError(
@@ -402,6 +565,14 @@ export async function assertDiffWithinScope(
       violations.push(v);
     }
   };
+
+  for (const sha of perCommit.merges) {
+    add({
+      path: sha,
+      rule: 'merge_commit',
+      reason: `Commit ${sha.slice(0, 12)} er en merge; agentgrenen må være lineær fra basen.`,
+    });
+  }
 
   for (const path of files) {
     for (const v of checkPathAgainstScope(path, contract.scope)) add(v);
