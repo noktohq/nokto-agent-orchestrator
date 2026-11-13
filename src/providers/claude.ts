@@ -1,4 +1,5 @@
 import { runCommand, tail } from './exec.js';
+import { agentEnv } from '../security/gitIntegrity.js';
 import type { OrchestratorConfig } from '../config.js';
 
 /**
@@ -39,6 +40,8 @@ export interface RunClaudeOptions {
   addDir?: string;
   systemPromptAppend?: string;
   allowedTools?: string[];
+  /** Verktøy agenten aldri får bruke, også når de matcher allowedTools. */
+  disallowedTools?: string[];
 }
 
 export interface ClaudeOutcome {
@@ -73,12 +76,17 @@ export async function runClaude(
   if (opts.allowedTools && opts.allowedTools.length > 0) {
     argv.push('--allowedTools', ...opts.allowedTools);
   }
+  if (opts.disallowedTools && opts.disallowedTools.length > 0) {
+    argv.push('--disallowedTools', ...opts.disallowedTools);
+  }
 
   const res = await runCommand(argv, {
     cwd: opts.cwd,
     repoRoot: opts.repoRoot,
     timeoutMs: config.claudeTimeoutSec * 1000,
     skipAllowlist: true,
+    // Agenten skal ikke arve GITHUB_TOKEN o.l.: da kunne den pushe selv, utenom push-vakten.
+    env: agentEnv(),
   });
 
   let parsed: ClaudeResultJson | null = null;

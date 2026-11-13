@@ -158,4 +158,40 @@ describe('runClaude', () => {
     expect(outcome.ok).toBe(false);
     expect(outcome.resultText).toBe('');
   });
+
+  it('sender disallowedTools og arver ikke GITHUB_TOKEN', async () => {
+    const prev = process.env.GITHUB_TOKEN;
+    process.env.GITHUB_TOKEN = 'ghp_ikke_til_agenten';
+    try {
+      runCommandMock.mockResolvedValue({
+        ok: true,
+        exitCode: 0,
+        stdout: JSON.stringify({
+          type: 'result',
+          subtype: 'success',
+          is_error: false,
+          result: 'ok',
+        }),
+        stderr: '',
+        durationMs: 1,
+        timedOut: false,
+      });
+      await runClaude('x', fakeConfig(), {
+        cwd: '/repo/wt',
+        repoRoot: '/repo/wt',
+        permissionMode: 'acceptEdits',
+        allowedTools: ['Bash(git *)'],
+        disallowedTools: ['Bash(git push *)'],
+      });
+      const [argv, opts] = runCommandMock.mock.calls[0] as [string[], { env?: NodeJS.ProcessEnv }];
+      const i = argv.indexOf('--disallowedTools');
+      expect(i).toBeGreaterThan(-1);
+      expect(argv[i + 1]).toBe('Bash(git push *)');
+      expect(opts.env).toBeDefined();
+      expect(opts.env?.GITHUB_TOKEN).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env.GITHUB_TOKEN;
+      else process.env.GITHUB_TOKEN = prev;
+    }
+  });
 });

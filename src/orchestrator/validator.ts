@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { runClaude } from '../providers/claude.js';
-import { matchesAnyGlob } from '../security/glob.js';
+import { checkPathAgainstScope } from '../security/scope.js';
 import { scanForSecrets } from '../security/secretScan.js';
 import type { OrchestratorConfig } from '../config.js';
 import type { TaskContract, TaskPlan } from '../types.js';
@@ -10,17 +10,6 @@ export interface PlanValidation {
   approved: boolean;
   reasons: string[];
 }
-
-const HARD_BLOCKED_GLOBS = [
-  '.git/**',
-  '.github/workflows/**',
-  '**/.env',
-  '**/.env.*',
-  '**/config.json',
-];
-
-/** Alltid tillatt selv om de matcher HARD_BLOCKED_GLOBS-mønstre — f.eks. `.env.example`. */
-const HARD_BLOCK_EXCEPTIONS = ['**/.env.example'];
 
 /**
  * Kvalitets-/sikkerhetsprofiler LLM-valideringen vurderer planen mot.
@@ -37,23 +26,12 @@ function profileFiles(): string[] {
 function staticValidate(contract: TaskContract, plan: TaskPlan): PlanValidation {
   const reasons: string[] = [];
 
+  // Samme path-policy som håndheves mot den faktiske diffen (src/security/scope.ts).
+  // Planer kan oppgi "./sti"; git rapporterer aldri det, så det fjernes før sjekken.
   for (const file of plan.filesExpectedToChange) {
-    if (file.startsWith('/') || file.includes('..')) {
-      reasons.push(`Filsti "${file}" er absolutt eller inneholder "..": ikke tillatt.`);
-      continue;
-    }
-    if (!matchesAnyGlob(file, contract.scope.allowedPaths)) {
-      reasons.push(
-        `Filsti "${file}" er utenfor tillatt scope (${contract.scope.allowedPaths.join(', ')}).`
-      );
-    }
-    if (matchesAnyGlob(file, contract.scope.disallowedPaths)) {
-      reasons.push(`Filsti "${file}" matcher en eksplisitt forbudt sti.`);
-    }
-    const isHardBlocked =
-      matchesAnyGlob(file, HARD_BLOCKED_GLOBS) && !matchesAnyGlob(file, HARD_BLOCK_EXCEPTIONS);
-    if (isHardBlocked) {
-      reasons.push(`Filsti "${file}" er alltid blokkert (hemmeligheter/CI-rettigheter): ${file}.`);
+    const normalized = file.startsWith('./') ? file.slice(2) : file;
+    for (const v of checkPathAgainstScope(normalized, contract.scope)) {
+      reasons.push(v.reason);
     }
   }
 

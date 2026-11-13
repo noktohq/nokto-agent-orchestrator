@@ -48,7 +48,7 @@ function buildSecondaryReviewPrompt(contract: TaskContract, plan: TaskPlan, diff
     ``,
     REVIEW_JSON_SCHEMA_HINT,
     ``,
-    `--- DIFF (git diff origin/${contract.git.baseBranch}...HEAD) ---`,
+    `--- DIFF (git diff <base-commit> HEAD, base fra origin/${contract.git.baseBranch}) ---`,
     diff.length > 60_000
       ? `${diff.slice(0, 60_000)}\n... [diff kuttet, ${diff.length} tegn totalt]`
       : diff,
@@ -71,14 +71,15 @@ export async function secondaryReviewCode(
   config: OrchestratorConfig,
   contract: TaskContract,
   plan: TaskPlan,
-  worktreePath: string
+  worktreePath: string,
+  baseSha?: string
 ): Promise<ReviewResult | null> {
   const doctor = await runDoctor(config);
   const available = new Set(doctor.filter((d) => d.available).map((d) => d.provider));
   const reviewer = pickReviewer(contract.constraints.secondaryReviewers, available);
   if (!reviewer) return null;
 
-  const diff = await diffAgainstBase(config, worktreePath, contract.git.baseBranch);
+  const diff = await diffAgainstBase(config, worktreePath, contract.git.baseBranch, baseSha);
   if (diff.trim() === '') {
     return {
       reviewer,

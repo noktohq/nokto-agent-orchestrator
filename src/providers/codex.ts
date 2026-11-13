@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { runCommand, tail } from './exec.js';
+import { agentEnv } from '../security/gitIntegrity.js';
 import type { OrchestratorConfig } from '../config.js';
 
 /**
@@ -70,6 +71,8 @@ export async function runCodex(
       repoRoot: opts.repoRoot,
       timeoutMs: config.codexTimeoutSec * 1000,
       skipAllowlist: true,
+      // Agenten skal ikke arve GITHUB_TOKEN o.l.: da kunne den pushe selv, utenom push-vakten.
+      env: agentEnv(),
     });
 
     let finalMessage = '';

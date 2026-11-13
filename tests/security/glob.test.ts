@@ -22,4 +22,14 @@ describe('matchesAnyGlob', () => {
     expect(matchesAnyGlob('some/nested/dir/.env', ['**/.env'])).toBe(true);
     expect(matchesAnyGlob('some/nested/dir/.env.example', ['**/.env.example'])).toBe(true);
   });
+
+  it('** foran / krever hele stisegmenter', () => {
+    expect(matchesAnyGlob('docs/README.md', ['docs/**/README.md'])).toBe(true);
+    expect(matchesAnyGlob('docs/a/b/README.md', ['docs/**/README.md'])).toBe(true);
+    expect(matchesAnyGlob('docs/NOT_README.md', ['docs/**/README.md'])).toBe(false);
+    expect(matchesAnyGlob('src/abcx.ts', ['src/**/x.ts'])).toBe(false);
+    expect(matchesAnyGlob('src/x.ts', ['src/**/x.ts'])).toBe(true);
+    expect(matchesAnyGlob('.env', ['**/.env'])).toBe(true);
+    expect(matchesAnyGlob('prod.env', ['**/.env'])).toBe(false);
+  });
 });

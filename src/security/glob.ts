@@ -1,7 +1,7 @@
 /**
  * Minimal glob-matching uten ekstern dependency. Støtter `*` (innen ett
- * stinivå), `**` (vilkårlig dybde) og `?` (ett tegn). Tilstrekkelig for
- * allowedPaths/disallowedPaths i oppgavekontrakter — ikke en generell
+ * stinivå), `**` (vilkårlig dybde; foran `/` bare hele stisegmenter) og `?` (ett
+ * tegn). Tilstrekkelig for allowedPaths/disallowedPaths i oppgavekontrakter — ikke en generell
  * glob-implementasjon.
  */
 export function globToRegExp(pattern: string): RegExp {
@@ -10,9 +10,15 @@ export function globToRegExp(pattern: string): RegExp {
     const c = pattern[i];
     if (c === '*') {
       if (pattern[i + 1] === '*') {
-        out += '.*';
         i++;
-        if (pattern[i + 1] === '/') i++;
+        if (pattern[i + 1] === '/') {
+          // `**/` = null eller flere hele stisegmenter: `docs/**/README.md` matcher
+          // `docs/README.md` og `docs/a/README.md`, men ikke `docs/NOT_README.md`.
+          out += '(?:.*/)?';
+          i++;
+        } else {
+          out += '.*';
+        }
       } else {
         out += '[^/]*';
       }

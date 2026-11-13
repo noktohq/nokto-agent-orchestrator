@@ -7,8 +7,8 @@ state: active
 phase: v1 i bruk, dokumentert på engelsk
 now: null
 next:
-  - Implementer diff-vs-allowedPaths-håndheving (kjent gap i SECURITY.md — allowedPaths er ikke en hard
-    sandkasse)
+  - 'Vurder egen OS-bruker eller container uten push-legitimasjon for implementereren (push-vakten
+    begrenser ikke agentprosessen, se SECURITY.md)'
   - Følg opp moderat advisory GHSA-g3hv-75wg-m249 i minimatch 10 (dev, via @typescript-eslint) når upstream
     tillater minimatch 11
 waiting: []
@@ -17,7 +17,19 @@ decisions_needed: []
 done:
   - what: 'Avhengigheter: MCP-SDK 1.32.2, zod 4.6.7, vitest 4.1.12, vite 6.4.6; pnpm audit --prod uten funn'
     at: '2026-11-13'
-    evidence: 'gren nokto/sikkerhet-avhengigheter (PR-utkast)'
+    evidence: 'PR #10'
+  - what: 'Retting etter uavhengig gjennomgang av scope-vakten: låst base per oppgave hentet med egen
+      refspec, base bekreftet i remote før push, fingeravtrykk av git-konfig, replace-refs/grafts
+      avvist, hver commit sjekket og merges avvist, --ignore-submodules=none, skanning/review med
+      --text mot base-commiten, streng push-refspec, prefiks må slutte på /, disallowedPaths uten
+      skille mellom store/små bokstaver, Unicode-krav, hele .github/ hard-blokkert, glob ** rettet,
+      byte-basert fangst i runCommand, agenten uten tokens'
+    at: '2026-11-13'
+    evidence: 'PR #9; vitest 23 filer, 195 tester grønne'
+  - what: 'Scope-vakt på faktisk diff (før gjennomgang, hvert forsøk, før push) og push-vakt mot main, master,
+      baseBranch og origin/HEAD med krav om agentprefiks'
+    at: '2026-11-13'
+    evidence: 'PR #9'
   - what: Fjernet tracked node-compile-cache/
     at: '2026-09-21'
     evidence: 'PR #7'
@@ -48,9 +60,9 @@ milestones:
     evidence: 'PR #6'
   - id: scope-enforcement
     title: Diff sjekkes mot allowedPaths før review
-    status: planned
-    date: null
-    evidence: 'SECURITY.md: Known limitations'
+    status: in_progress
+    date: '2026-11-13'
+    evidence: 'grenen nokto/scope-vakt, commit 28909e5 — ikke flettet til main'
 environment:
   runtime: Node 20+, pnpm 9; claude/codex CLI; GEMINI_API_KEY valgfritt
   deploy: CLI/MCP-prosess lokalt; deploy/cloudrun for endepunkt
@@ -60,18 +72,43 @@ production_status: unknown
 production_note: deploy/cloudrun finnes; om Cloud Run-tjenesten kjører nå er ukjent.
 branch: main
 last_verified_commit: d0b6151
-last_checkpoint: null
+last_checkpoint:
+  at: '2026-11-13'
+  branch: nokto/scope-vakt
+  commit: 28909e5
+  dirty: false
+  done:
+    - src/security/scope.ts med assertDiffWithinScope og felles path-policy (brukt av validator.ts)
+    - Vakten kjører etter hver implementering (pipeline.ts) og rett før push (pr.ts); brudd feiler oppgaven
+    - Push-vakt med beskyttede grener (main, master, baseBranch, origin/HEAD) og krav om grenprefiks
+    - pr.ts pusher den sjekkede commiten til refs/heads/<agentgren> med hooks av
+    - Regresjonstester (ekte git i tmp-repo + mocket git), SECURITY.md og README oppdatert
+  verified:
+    - pnpm install --frozen-lockfile, pnpm lint, pnpm typecheck, pnpm test (152 bestått, 1 hoppet over), pnpm build
+      — lokalt 2026-11-13
+  not_verified:
+    - CI på grenen
+    - Ende-til-ende-kjøring med ekte implementerer (claude/codex) mot et reelt repo
+  remaining:
+    - Hemmelighetsskanning og reviewer-diff bruker fortsatt origin/<baseBranch>...HEAD
+    - Remote-URL og credential-oppsett i delt git-konfig er ikke låst
+  blockers: []
+  next_action: Gjennomgå PR-utkastet for nokto/scope-vakt
 last_session: null
 security_findings:
   - what: allowedPaths håndheves ikke strukturelt mot implementerers diff (kjent gap)
-    status: open
-    ref: SECURITY.md
+    status: mitigated
+    ref: 'SECURITY.md: Scope guard'
     since: '2026-09-11'
+  - what: Push uten eksplisitt mål kunne omdirigeres til main via remote.origin.push i delt git-konfig
+    status: mitigated
+    ref: 'SECURITY.md: Push guard'
+    since: '2026-11-13'
   - what: 1 moderat advisory i minimatch 10 (dev, via @typescript-eslint); ingen patch i 10.x
     status: accepted
     ref: 'SECURITY.md: Known limitations'
     since: '2026-11-13'
-updated_at: '2026-11-13T12:48:21Z'
+updated_at: '2026-11-13T15:15:00Z'
 sources:
   - README.md
   - RUNBOOK.md

@@ -13,6 +13,16 @@ import { needsSecondaryReview, secondaryReviewCode } from './secondaryReviewer.j
 import { runVerify } from './verifier.js';
 import { createTaskPullRequest } from './pr.js';
 import { TaskStore } from './taskStore.js';
+import {
+  assertDiffWithinScope,
+  ScopeInspectionError,
+  ScopeViolationError,
+} from '../security/scope.js';
+import {
+  assertGitConfigUnchanged,
+  gitConfigDigest,
+  GitIntegrityError,
+} from '../security/gitIntegrity.js';
 import type { OrchestratorConfig } from '../config.js';
 import type {
   ReviewResult,
@@ -25,6 +35,33 @@ import type {
 } from '../types.js';
 
 export class TaskCancelledError extends Error {}
+
+/**
+ * Scope-vakten stoppet oppgaven. Ikke et vanlig mislykket forsøk: en implementerer
+ * som skriver utenfor scope får ikke nye forsøk, og ingenting pushes.
+ */
+class ScopeAbortError extends Error {}
+
+type GuardError = ScopeViolationError | ScopeInspectionError | GitIntegrityError;
+
+function isScopeError(err: unknown): err is GuardError {
+  return (
+    err instanceof ScopeViolationError ||
+    err instanceof ScopeInspectionError ||
+    err instanceof GitIntegrityError
+  );
+}
+
+function scopeAuditData(err: GuardError): Record<string, unknown> {
+  return {
+    error: err.name,
+    reason: err.message,
+    violations:
+      err instanceof ScopeViolationError
+        ? err.violations.map((v) => ({ path: v.path, rule: v.rule }))
+        : [],
+  };
+}
 
 export interface RunTaskOptions {
   /** Kjør alt fram til (men ikke inkludert) faktisk implementering — verifiserer at
@@ -197,6 +234,15 @@ export async function runTask(
       setPhase('plan_validated');
     }
 
+    // Fingeravtrykk av git-konfigurasjonen før noen agent kjører i denne oppgaven. Låses
+    // i state, så et resume ikke tar et nytt avtrykk av konfig agenten kan ha endret.
+    state.security = state.security ?? {};
+    if (state.security.gitConfigDigest === undefined) {
+      state.security.gitConfigDigest = await gitConfigDigest(config);
+      persist(store, state);
+    }
+    const configDigest = state.security.gitConfigDigest;
+
     const maxAttempts = contract.constraints.maxRetries + 1;
     let feedback: string | undefined;
     let succeeded = false;
@@ -211,15 +257,38 @@ export async function runTask(
       setPhase('implementing');
       audit.record('attempt_started', contract.id, { attempt: attemptNum });
 
+      // Agenten i et tidligere forsøk kan ha endret delt git-konfig (remote, fetch-refspec,
+      // hooks, filter-drivere). Da kjøres ingen flere git-kall for oppgaven.
+      try {
+        await assertGitConfigUnchanged(config, configDigest);
+      } catch (err) {
+        if (!(err instanceof GitIntegrityError)) throw err;
+        attempt.failureReason = `Git-integritet: ${err.message}`.slice(0, 4000);
+        attempt.finishedAt = nowIso();
+        audit.record('scope_violation', contract.id, {
+          attempt: attemptNum,
+          stage: 'before_worktree',
+          ...scopeAuditData(err),
+        });
+        setPhase('failed');
+        audit.record('task_failed', contract.id, { reason: attempt.failureReason });
+        return state;
+      }
+
       let worktree: WorktreeHandle;
       try {
+        const lockedBase = state.security.baseSha;
         worktree = await createWorktree(
           config,
           contract.id,
           attemptNum,
           contract.git.branchPrefix,
-          contract.git.baseBranch
+          contract.git.baseBranch,
+          lockedBase !== undefined ? { baseSha: lockedBase } : {}
         );
+        if (lockedBase === undefined && worktree.baseSha !== undefined) {
+          state.security.baseSha = worktree.baseSha;
+        }
       } catch (err) {
         attempt.failureReason = `Worktree-opprettelse feilet: ${message(err)}`;
         attempt.finishedAt = nowIso();
@@ -265,9 +334,27 @@ export async function runTask(
               2000
             );
         } else {
+          // Scope-vakt: den faktiske diffen (ikke planen) mot allowedPaths/disallowedPaths
+          // før noen gjennomgang. Kjøres for hvert forsøk, også etter korrigeringer.
+          try {
+            const scope = await assertDiffWithinScope(config, contract, worktree);
+            audit.record('scope_check_passed', contract.id, {
+              attempt: attemptNum,
+              files: scope.files.length,
+            });
+          } catch (err) {
+            if (!isScopeError(err)) throw err;
+            audit.record('scope_violation', contract.id, {
+              attempt: attemptNum,
+              stage: 'after_implementation',
+              ...scopeAuditData(err),
+            });
+            throw new ScopeAbortError(`Scope-vakt: ${err.message}`);
+          }
+
           checkCancelled(store, state);
           setPhase('reviewing');
-          review = await reviewCode(config, contract, plan, worktree.path);
+          review = await reviewCode(config, contract, plan, worktree.path, worktree.baseSha);
           attempt.review = review;
           audit.record('review_finished', contract.id, {
             approved: review.approved,
@@ -277,7 +364,13 @@ export async function runTask(
           if (needsSecondaryReview(implResult.implementer, review)) {
             checkCancelled(store, state);
             setPhase('secondary_review');
-            secondaryReview = await secondaryReviewCode(config, contract, plan, worktree.path);
+            secondaryReview = await secondaryReviewCode(
+              config,
+              contract,
+              plan,
+              worktree.path,
+              worktree.baseSha
+            );
             attempt.secondaryReview = secondaryReview;
             if (secondaryReview) {
               audit.record('secondary_review_finished', contract.id, {
@@ -312,6 +405,15 @@ export async function runTask(
         }
       } catch (err) {
         if (err instanceof TaskCancelledError) throw err;
+        if (err instanceof ScopeAbortError) {
+          attempt.failureReason = err.message.slice(0, 4000);
+          attempt.finishedAt = nowIso();
+          await removeWorktree(config, worktree).catch(() => undefined);
+          await deleteLocalBranch(config, worktree.branch).catch(() => undefined);
+          setPhase('failed');
+          audit.record('task_failed', contract.id, { reason: attempt.failureReason });
+          return state;
+        }
         implFailure = implFailure ?? message(err);
       }
 
@@ -350,14 +452,28 @@ export async function runTask(
         successAttempt.review as ReviewResult,
         successAttempt.secondaryReview,
         successAttempt.verify as VerifyResult,
-        successWorktree
+        successWorktree,
+        { gitConfigDigest: configDigest }
       );
       state.prUrl = pr.htmlUrl;
       setPhase('pr_created');
       audit.record('pr_created', contract.id, { url: pr.htmlUrl, number: pr.number });
     } catch (err) {
-      setPhase('completed');
-      audit.record('pr_creation_skipped', contract.id, { reason: message(err) });
+      if (isScopeError(err)) {
+        // Brudd oppdaget rett før push: ingenting er pushet, oppgaven feiler.
+        successAttempt.failureReason = `Scope-vakt før push: ${err.message}`.slice(0, 4000);
+        audit.record('scope_violation', contract.id, {
+          attempt: successAttempt.attempt,
+          stage: 'before_push',
+          ...scopeAuditData(err),
+        });
+        await deleteLocalBranch(config, successWorktree.branch).catch(() => undefined);
+        setPhase('failed');
+        audit.record('task_failed', contract.id, { reason: successAttempt.failureReason });
+      } else {
+        setPhase('completed');
+        audit.record('pr_creation_skipped', contract.id, { reason: message(err) });
+      }
     } finally {
       await removeWorktree(config, successWorktree).catch(() => undefined);
     }

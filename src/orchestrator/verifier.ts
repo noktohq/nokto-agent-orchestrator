@@ -1,4 +1,5 @@
 import { runCommand } from '../providers/exec.js';
+import { agentEnv } from '../security/gitIntegrity.js';
 import type { OrchestratorConfig } from '../config.js';
 import type { TaskContract, VerifyCommandResult, VerifyResult } from '../types.js';
 
@@ -75,6 +76,8 @@ export async function runVerify(
         cwd: worktreePath,
         repoRoot: worktreePath,
         timeoutMs: perCommandTimeoutMs,
+        // Kommandoene kjører package.json-scripts agenten kan ha skrevet: ingen tokens.
+        env: agentEnv(),
       });
       commands.push({
         command,

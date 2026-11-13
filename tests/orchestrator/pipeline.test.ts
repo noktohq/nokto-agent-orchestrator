@@ -24,6 +24,15 @@ vi.mock('../../src/orchestrator/secondaryReviewer.js', () => ({
 }));
 vi.mock('../../src/orchestrator/verifier.js', () => ({ runVerify: vi.fn() }));
 vi.mock('../../src/orchestrator/pr.js', () => ({ createTaskPullRequest: vi.fn() }));
+vi.mock('../../src/security/scope.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/security/scope.js')>()),
+  assertDiffWithinScope: vi.fn(),
+}));
+vi.mock('../../src/security/gitIntegrity.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/security/gitIntegrity.js')>()),
+  gitConfigDigest: vi.fn(),
+  assertGitConfigUnchanged: vi.fn(),
+}));
 
 const { planTask } = await import('../../src/orchestrator/planner.js');
 const { validatePlan } = await import('../../src/orchestrator/validator.js');
@@ -35,6 +44,11 @@ const { needsSecondaryReview, secondaryReviewCode } =
   await import('../../src/orchestrator/secondaryReviewer.js');
 const { runVerify } = await import('../../src/orchestrator/verifier.js');
 const { createTaskPullRequest } = await import('../../src/orchestrator/pr.js');
+const { assertDiffWithinScope, ScopeViolationError, ScopeInspectionError } =
+  await import('../../src/security/scope.js');
+const { gitConfigDigest, assertGitConfigUnchanged, GitIntegrityError } =
+  await import('../../src/security/gitIntegrity.js');
+const { AuditLog } = await import('../../src/audit.js');
 const { runTask } = await import('../../src/orchestrator/pipeline.js');
 const { TaskStore } = await import('../../src/orchestrator/taskStore.js');
 
@@ -96,13 +110,24 @@ describe('runTask (pipeline, med mockede agent-leverandører)', () => {
     let attemptCounter = 0;
     vi.mocked(createWorktree).mockImplementation(async () => {
       attemptCounter += 1;
-      return { path: resolve(dir, `wt-${attemptCounter}`), branch: `agent/x-${attemptCounter}` };
+      return {
+        path: resolve(dir, `wt-${attemptCounter}`),
+        branch: `agent/x-${attemptCounter}`,
+        baseSha: `${attemptCounter}`.repeat(40),
+      };
     });
+    vi.mocked(gitConfigDigest).mockResolvedValue('digest-1');
+    vi.mocked(assertGitConfigUnchanged).mockResolvedValue(undefined);
     vi.mocked(removeWorktree).mockResolvedValue(undefined);
     vi.mocked(deleteLocalBranch).mockResolvedValue(undefined);
     vi.mocked(needsSecondaryReview).mockReturnValue(false);
     vi.mocked(reviewCode).mockResolvedValue(okReview);
     vi.mocked(runVerify).mockResolvedValue(okVerify);
+    vi.mocked(assertDiffWithinScope).mockResolvedValue({
+      baseSha: 'a'.repeat(40),
+      headSha: 'b'.repeat(40),
+      files: ['a/x.ts'],
+    });
     vi.mocked(createTaskPullRequest).mockResolvedValue({
       number: 1,
       url: 'https://api.github.com/repos/x/y/pulls/1',
@@ -233,5 +258,158 @@ describe('runTask (pipeline, med mockede agent-leverandører)', () => {
     expect(secondaryReviewCode).toHaveBeenCalled();
     expect(state.phase).toBe('failed');
     expect(state.attempts[0]?.failureReason).toContain('Sekundær kontroll avvist');
+  });
+
+  describe('scope-vakt', () => {
+    const okImpl = { ok: true, implementer: 'claude' as const, summary: 'ferdig', stderrTail: '' };
+    const violation = new ScopeViolationError('Diffen bryter oppgavens scope (1 brudd)', [
+      { path: '.github/workflows/ci.yml', rule: 'hard_blocked', reason: 'alltid blokkert' },
+    ]);
+
+    it('sjekker diffen etter implementering, før gjennomgang', async () => {
+      vi.mocked(implementTask).mockResolvedValue(okImpl);
+      const store = new TaskStore(config.stateDir);
+      const state = await runTask({ config, store }, contract());
+
+      expect(state.phase).toBe('pr_created');
+      expect(assertDiffWithinScope).toHaveBeenCalledTimes(1);
+      const scopeOrder = vi.mocked(assertDiffWithinScope).mock.invocationCallOrder[0] ?? 0;
+      const reviewOrder = vi.mocked(reviewCode).mock.invocationCallOrder[0] ?? 0;
+      expect(scopeOrder).toBeLessThan(reviewOrder);
+      const events = new AuditLog(config.auditDir, 'pipeline-test').readAll();
+      expect(events.some((e) => e.type === 'scope_check_passed')).toBe(true);
+    });
+
+    it('brudd etter implementering: oppgaven feiler, ingen gjennomgang, ingen nye forsøk, ingen PR', async () => {
+      vi.mocked(implementTask).mockResolvedValue(okImpl);
+      vi.mocked(assertDiffWithinScope).mockRejectedValueOnce(violation);
+      const store = new TaskStore(config.stateDir);
+      const state = await runTask({ config, store }, contract({ maxRetries: 3 }));
+
+      expect(state.phase).toBe('failed');
+      expect(state.attempts).toHaveLength(1);
+      expect(state.attempts[0]?.failureReason).toContain('Scope-vakt');
+      expect(reviewCode).not.toHaveBeenCalled();
+      expect(runVerify).not.toHaveBeenCalled();
+      expect(createTaskPullRequest).not.toHaveBeenCalled();
+      expect(removeWorktree).toHaveBeenCalledTimes(1);
+      expect(deleteLocalBranch).toHaveBeenCalledTimes(1);
+
+      const events = new AuditLog(config.auditDir, 'pipeline-test').readAll();
+      const v = events.find((e) => e.type === 'scope_violation');
+      expect(v?.stage).toBe('after_implementation');
+      expect(v?.violations).toEqual([{ path: '.github/workflows/ci.yml', rule: 'hard_blocked' }]);
+    });
+
+    it('sjekker hvert forsøk: brudd etter en korrigering stopper oppgaven', async () => {
+      vi.mocked(implementTask).mockResolvedValue(okImpl);
+      vi.mocked(reviewCode).mockResolvedValueOnce({
+        reviewer: 'claude',
+        approved: false,
+        findings: [{ severity: 'blocker', file: 'a/x.ts', summary: 'feil' }],
+        raw: '',
+      });
+      vi.mocked(assertDiffWithinScope)
+        .mockResolvedValueOnce({
+          baseSha: 'a'.repeat(40),
+          headSha: 'b'.repeat(40),
+          files: ['a/x.ts'],
+        })
+        .mockRejectedValueOnce(violation);
+
+      const store = new TaskStore(config.stateDir);
+      const state = await runTask({ config, store }, contract({ maxRetries: 3 }));
+
+      expect(assertDiffWithinScope).toHaveBeenCalledTimes(2);
+      expect(state.attempts).toHaveLength(2);
+      expect(state.phase).toBe('failed');
+      expect(createTaskPullRequest).not.toHaveBeenCalled();
+    });
+
+    it('feil under git-inspeksjon behandles som brudd (fail closed)', async () => {
+      vi.mocked(implementTask).mockResolvedValue(okImpl);
+      vi.mocked(assertDiffWithinScope).mockRejectedValueOnce(
+        new ScopeInspectionError('git diff feilet')
+      );
+      const store = new TaskStore(config.stateDir);
+      const state = await runTask({ config, store }, contract());
+
+      expect(state.phase).toBe('failed');
+      expect(reviewCode).not.toHaveBeenCalled();
+      expect(createTaskPullRequest).not.toHaveBeenCalled();
+    });
+
+    it('brudd oppdaget rett før push: oppgaven feiler i stedet for "completed"', async () => {
+      vi.mocked(implementTask).mockResolvedValue(okImpl);
+      vi.mocked(createTaskPullRequest).mockRejectedValueOnce(violation);
+      const store = new TaskStore(config.stateDir);
+      const state = await runTask({ config, store }, contract());
+
+      expect(state.phase).toBe('failed');
+      expect(state.prUrl).toBeNull();
+      const events = new AuditLog(config.auditDir, 'pipeline-test').readAll();
+      expect(events.find((e) => e.type === 'scope_violation')?.stage).toBe('before_push');
+      expect(events.some((e) => e.type === 'pr_creation_skipped')).toBe(false);
+    });
+  });
+
+  describe('låst base og git-integritet mellom forsøk', () => {
+    it('forsøk 2 bruker base-commiten fra forsøk 1, ikke en ny fetch', async () => {
+      vi.mocked(implementTask)
+        .mockResolvedValueOnce({ ok: false, implementer: 'claude', summary: '', stderrTail: 'x' })
+        .mockResolvedValueOnce({ ok: true, implementer: 'claude', summary: 'ok', stderrTail: '' });
+
+      const store = new TaskStore(config.stateDir);
+      const state = await runTask({ config, store }, contract({ maxRetries: 1 }));
+
+      expect(state.phase).toBe('pr_created');
+      const calls = vi.mocked(createWorktree).mock.calls;
+      expect(calls).toHaveLength(2);
+      expect(calls[0]?.[5]).toEqual({});
+      expect(calls[1]?.[5]).toEqual({ baseSha: '1'.repeat(40) });
+      expect(state.security).toEqual({ baseSha: '1'.repeat(40), gitConfigDigest: 'digest-1' });
+      expect(vi.mocked(reviewCode).mock.calls[0]?.[4]).toBe('2'.repeat(40));
+      expect(vi.mocked(createTaskPullRequest).mock.calls[0]?.[7]).toEqual({
+        gitConfigDigest: 'digest-1',
+      });
+    });
+
+    it('stopper når git-konfigurasjonen er endret før et nytt forsøk', async () => {
+      vi.mocked(implementTask).mockResolvedValue({
+        ok: false,
+        implementer: 'claude',
+        summary: '',
+        stderrTail: 'feilet med vilje',
+      });
+      vi.mocked(assertGitConfigUnchanged)
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new GitIntegrityError('konfig endret'));
+
+      const store = new TaskStore(config.stateDir);
+      const state = await runTask({ config, store }, contract({ maxRetries: 2 }));
+
+      expect(state.phase).toBe('failed');
+      expect(createWorktree).toHaveBeenCalledTimes(1);
+      expect(state.attempts.at(-1)?.failureReason).toMatch(/Git-integritet/);
+      expect(createTaskPullRequest).not.toHaveBeenCalled();
+    });
+
+    it('git-integritetsfeil rett før push gir failed, ikke completed', async () => {
+      vi.mocked(implementTask).mockResolvedValue({
+        ok: true,
+        implementer: 'claude',
+        summary: 'ok',
+        stderrTail: '',
+      });
+      vi.mocked(createTaskPullRequest).mockRejectedValueOnce(
+        new GitIntegrityError('base finnes ikke i remote')
+      );
+
+      const store = new TaskStore(config.stateDir);
+      const state = await runTask({ config, store }, contract({ maxRetries: 0 }));
+
+      expect(state.phase).toBe('failed');
+      expect(state.attempts.at(-1)?.failureReason).toMatch(/base finnes ikke/);
+    });
   });
 });

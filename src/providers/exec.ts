@@ -1,6 +1,10 @@
 import { spawn } from 'node:child_process';
 import type { ProviderInvocationResult } from '../types.js';
-import { assertCommandAllowed, type CommandContext } from '../security/allowlist.js';
+import {
+  assertCommandAllowed,
+  type CommandContext,
+  type PushPolicy,
+} from '../security/allowlist.js';
 
 export interface RunOptions {
   cwd: string;
@@ -9,11 +13,43 @@ export interface RunOptions {
   env?: NodeJS.ProcessEnv;
   input?: string;
   readOnly?: boolean;
+  /** Push-regler (beskyttede grener, grenprefiks) for `git push`. Se PushPolicy. */
+  pushPolicy?: PushPolicy;
   /** Skip allowlist-sjekk — brukes kun for provider-binærer (claude/codex) som ikke er git/pnpm/etc. */
   skipAllowlist?: boolean;
 }
 
-const MAX_CAPTURE_BYTES = 2_000_000;
+/**
+ * Øvre grense for fanget stdout/stderr per kommando, i byte. Output over grensen kuttes,
+ * og `stdoutTruncated`/`stderrTruncated` settes.
+ */
+export const MAX_CAPTURE_BYTES = 2_000_000;
+
+/**
+ * Samler en strøm som Buffer-biter og dekoder én gang til slutt, slik at et flerbyte-tegn
+ * som deles over to biter ikke blir U+FFFD. Grensen telles i byte.
+ */
+class CaptureBuffer {
+  private chunks: Buffer[] = [];
+  private bytes = 0;
+  truncated = false;
+
+  push(chunk: Buffer): void {
+    if (this.bytes >= MAX_CAPTURE_BYTES) {
+      this.truncated = true;
+      return;
+    }
+    const room = MAX_CAPTURE_BYTES - this.bytes;
+    const part = chunk.length > room ? chunk.subarray(0, room) : chunk;
+    if (part.length < chunk.length) this.truncated = true;
+    this.chunks.push(part);
+    this.bytes += part.length;
+  }
+
+  text(): string {
+    return Buffer.concat(this.chunks).toString('utf8');
+  }
+}
 
 /**
  * Trygg prosess-spawn. Kjører alltid som argv-array (aldri shell:true), håndhever
@@ -29,6 +65,7 @@ export async function runCommand(
       cwd: opts.cwd,
       repoRoot: opts.repoRoot,
       ...(opts.readOnly !== undefined ? { readOnly: opts.readOnly } : {}),
+      ...(opts.pushPolicy !== undefined ? { pushPolicy: opts.pushPolicy } : {}),
     };
     assertCommandAllowed(argv, ctx);
   }
@@ -45,8 +82,8 @@ export async function runCommand(
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    let stdout = '';
-    let stderr = '';
+    const stdout = new CaptureBuffer();
+    const stderr = new CaptureBuffer();
     let timedOut = false;
 
     const killTimer = setTimeout(() => {
@@ -57,12 +94,8 @@ export async function runCommand(
       }, 5000);
     }, opts.timeoutMs);
 
-    child.stdout?.on('data', (chunk: Buffer) => {
-      if (stdout.length < MAX_CAPTURE_BYTES) stdout += chunk.toString('utf8');
-    });
-    child.stderr?.on('data', (chunk: Buffer) => {
-      if (stderr.length < MAX_CAPTURE_BYTES) stderr += chunk.toString('utf8');
-    });
+    child.stdout?.on('data', (chunk: Buffer) => stdout.push(chunk));
+    child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk));
 
     if (opts.input !== undefined) {
       child.stdin?.write(opts.input);
@@ -74,10 +107,12 @@ export async function runCommand(
       resolvePromise({
         ok: false,
         exitCode: null,
-        stdout,
-        stderr: `${stderr}\n${String(err)}`,
+        stdout: stdout.text(),
+        stderr: `${stderr.text()}\n${String(err)}`,
         durationMs: Date.now() - start,
         timedOut,
+        stdoutTruncated: stdout.truncated,
+        stderrTruncated: stderr.truncated,
       });
     });
 
@@ -86,10 +121,12 @@ export async function runCommand(
       resolvePromise({
         ok: code === 0 && !timedOut,
         exitCode: code,
-        stdout,
-        stderr,
+        stdout: stdout.text(),
+        stderr: stderr.text(),
         durationMs: Date.now() - start,
         timedOut,
+        stdoutTruncated: stdout.truncated,
+        stderrTruncated: stderr.truncated,
       });
     });
   });

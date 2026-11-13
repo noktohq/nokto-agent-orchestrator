@@ -47,20 +47,21 @@ Alle hendelser lagres i en append-only JSONL-auditlogg. Hemmeligheter redigeres 
 ## Sikkerhet
 
 Se [SECURITY.md](SECURITY.md) (engelsk) for rapporteringskanal og kjente
-begrensninger, inkludert scope-håndhevingen omtalt nedenfor.
+begrensninger, og for hvordan scope- og push-vakten virker.
 
-| Kontroll                                      | Beskyttelse                                                                                                     |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Argv-basert prosesskjøring uten `shell: true` | Hindrer kommandoinjeksjon strukturelt, uten å være avhengig av tekstsanitering                                  |
-| Binær-allowlist                               | Begrenser hvilke verktøy agentene kan kjøre                                                                     |
-| Git-subkommandoregler                         | Blokkerer destruktive eller risikable Git-operasjoner                                                           |
-| Force-push-blokkering                         | Nekter `--force` og `--force-with-lease`                                                                        |
-| Beskyttelse av hovedbranch                    | Hindrer direkte push til `main`; endringer leveres kun via pull request                                         |
-| Worktree-krav                                 | Nekter muterende Git-operasjoner utenfor en isolert worktree                                                    |
-| Hemmelighetsskanning                          | Skanner planer og differ og blokkerer opprettelse av pull request ved treff                                     |
-| Redigering av auditlogger                     | Fjerner hemmeligheter før hendelser lagres                                                                      |
-| Sandbox-hardblokkering                        | Avviser Codex-konfigurasjonen `danger-full-access` ved innlasting, uavhengig av miljøvariabler                  |
-| Reell miljøkontroll                           | `doctor` kontrollerer de faktiske binærfilene og antar aldri at en leverandør eller avhengighet er tilgjengelig |
+| Kontroll                                      | Beskyttelse                                                                                                                                     |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Argv-basert prosesskjøring uten `shell: true` | Hindrer kommandoinjeksjon strukturelt, uten å være avhengig av tekstsanitering                                                                  |
+| Binær-allowlist                               | Begrenser hvilke verktøy agentene kan kjøre                                                                                                     |
+| Git-subkommandoregler                         | Blokkerer destruktive eller risikable Git-operasjoner                                                                                           |
+| Force-push-blokkering                         | Nekter `--force` og `--force-with-lease`                                                                                                        |
+| Beskyttelse av hovedbranch                    | Push går bare til eksplisitte grener under agentprefikset; `main`, `master`, `baseBranch` og `origin/HEAD` er blokkert                          |
+| Scope-vakt på faktisk diff                    | Endrede, slettede, flyttede og usporede filer, og hver commit for seg, sjekkes mot `allowedPaths`/`disallowedPaths` før gjennomgang og før push |
+| Worktree-krav                                 | Nekter muterende Git-operasjoner utenfor en isolert worktree                                                                                    |
+| Hemmelighetsskanning                          | Skanner planer og differ og blokkerer opprettelse av pull request ved treff                                                                     |
+| Redigering av auditlogger                     | Fjerner hemmeligheter før hendelser lagres                                                                                                      |
+| Sandbox-hardblokkering                        | Avviser Codex-konfigurasjonen `danger-full-access` ved innlasting, uavhengig av miljøvariabler                                                  |
+| Reell miljøkontroll                           | `doctor` kontrollerer de faktiske binærfilene og antar aldri at en leverandør eller avhengighet er tilgjengelig                                 |
 
 Følgende Git-operasjoner er alltid blokkert:
 
@@ -234,7 +235,7 @@ Se `tasks/example.yaml` for et komplett eksempel.
 | `git.baseBranch`                  | Branchen worktreet opprettes fra                                        |
 | `git.branchPrefix`                | Prefiks for oppgavebrancher                                             |
 
-Planer utenfor tillatt scope avvises. Scope håndheves på planens deklarerte filliste; den resulterende diffen sjekkes ennå ikke mot den.
+Planer utenfor tillatt scope avvises. Samme path-policy håndheves mot implementererens faktiske diff etter hvert forsøk og rett før push; et brudd feiler oppgaven, og ingenting pushes.
 
 ## Testing
 
