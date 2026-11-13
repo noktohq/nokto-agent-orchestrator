@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProviderInvocationResult } from '../../src/types.js';
 
 const runCommandMock =
@@ -19,6 +19,19 @@ vi.mock('../../src/providers/github.js', () => ({
   addLabelsToIssue: (...args: unknown[]) => addLabelsToIssueMock(...args),
 }));
 
+const assertDiffWithinScopeMock = vi.fn();
+vi.mock('../../src/security/scope.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/security/scope.js')>()),
+  assertDiffWithinScope: (...args: unknown[]) => assertDiffWithinScopeMock(...args),
+}));
+
+const resolvePushPolicyMock = vi.fn();
+vi.mock('../../src/security/pushPolicy.js', () => ({
+  resolvePushPolicy: (...args: unknown[]) => resolvePushPolicyMock(...args),
+}));
+
+const { ScopeViolationError } = await import('../../src/security/scope.js');
+const { assertCommandAllowed } = await import('../../src/security/allowlist.js');
 const { createTaskPullRequest, SecretsInDiffError, PushBlockedError } =
   await import('../../src/orchestrator/pr.js');
 
@@ -51,8 +64,25 @@ function fakeConfig() {
   return { repoRoot: '/repo' } as unknown as Parameters<typeof createTaskPullRequest>[0];
 }
 
+const HEAD_SHA = 'c'.repeat(40);
+
 describe('createTaskPullRequest', () => {
+  beforeEach(() => {
+    assertDiffWithinScopeMock.mockResolvedValue({
+      baseSha: 'b'.repeat(40),
+      headSha: HEAD_SHA,
+      files: ['a/x.ts'],
+    });
+    resolvePushPolicyMock.mockResolvedValue({
+      protectedBranches: ['main', 'master', 'trunk'],
+      branchPrefix: 'agent/',
+      originHead: 'trunk',
+    });
+  });
+
   afterEach(() => {
+    assertDiffWithinScopeMock.mockReset();
+    resolvePushPolicyMock.mockReset();
     runCommandMock.mockReset();
     resolveRepoRefMock.mockReset();
     createPullRequestMock.mockReset();
@@ -117,8 +147,29 @@ describe('createTaskPullRequest', () => {
     );
 
     expect(result.number).toBe(42);
-    const pushCall = runCommandMock.mock.calls[1] as [string[], unknown];
-    expect(pushCall[0]).toEqual(['git', 'push', '-u', 'origin', 'agent/pr-test-1']);
+    const pushCall = runCommandMock.mock.calls[1] as [string[], { pushPolicy?: unknown }];
+    // Nøyaktig den sjekkede commiten til en eksplisitt agentgren, uten hooks.
+    expect(pushCall[0]).toEqual([
+      'git',
+      '-c',
+      'core.hooksPath=/dev/null',
+      'push',
+      '--no-verify',
+      'origin',
+      `${HEAD_SHA}:refs/heads/agent/pr-test-1`,
+    ]);
+    expect(pushCall[1].pushPolicy).toEqual({
+      protectedBranches: ['main', 'master', 'trunk'],
+      branchPrefix: 'agent/',
+    });
+    // Pushen må selv slippe gjennom push-vakten med policyen den sendes med.
+    expect(() =>
+      assertCommandAllowed(pushCall[0], {
+        cwd: worktree.path,
+        repoRoot: '/repo',
+        pushPolicy: { protectedBranches: ['main', 'master', 'trunk'], branchPrefix: 'agent/' },
+      })
+    ).not.toThrow();
 
     const prInput = createPullRequestMock.mock.calls[0]?.[2] as {
       head: string;
@@ -158,6 +209,21 @@ describe('createTaskPullRequest', () => {
     await expect(
       createTaskPullRequest(fakeConfig(), contract(), plan, review, null, verify, worktree)
     ).rejects.toThrow(PushBlockedError);
+    expect(createPullRequestMock).not.toHaveBeenCalled();
+  });
+
+  it('pusher ikke når scope-vakten finner brudd rett før push', async () => {
+    assertDiffWithinScopeMock.mockRejectedValueOnce(
+      new ScopeViolationError('brudd', [
+        { path: 'b/utenfor.ts', rule: 'outside_allowed', reason: 'utenfor tillatt scope' },
+      ])
+    );
+
+    await expect(
+      createTaskPullRequest(fakeConfig(), contract(), plan, review, null, verify, worktree)
+    ).rejects.toThrow(ScopeViolationError);
+
+    expect(runCommandMock).not.toHaveBeenCalled();
     expect(createPullRequestMock).not.toHaveBeenCalled();
   });
 });

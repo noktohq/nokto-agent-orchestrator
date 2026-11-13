@@ -8,6 +8,11 @@ export class WorktreeError extends Error {}
 export interface WorktreeHandle {
   path: string;
   branch: string;
+  /**
+   * Commiten worktreet ble opprettet fra. Scope-vakten differ mot denne, ikke mot
+   * `origin/<baseBranch>`, som agenten kan flytte (refs deles mellom worktrees).
+   */
+  baseSha?: string;
 }
 
 /**
@@ -44,15 +49,27 @@ export async function createWorktree(
     );
   }
 
-  const addRes = await runCommand(
-    ['git', 'worktree', 'add', '-b', branch, path, `origin/${baseBranch}`],
-    { cwd: config.repoRoot, repoRoot: config.repoRoot, timeoutMs: 60_000 }
+  const revRes = await runCommand(
+    ['git', 'rev-parse', '--verify', '--end-of-options', `origin/${baseBranch}^{commit}`],
+    { cwd: config.repoRoot, repoRoot: config.repoRoot, timeoutMs: 15_000, readOnly: true }
   );
+  const baseSha = revRes.stdout.trim();
+  if (!revRes.ok || !/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(baseSha)) {
+    throw new WorktreeError(
+      `Fant ikke commit for origin/${baseBranch}: ${revRes.stderr.slice(0, 300)}`
+    );
+  }
+
+  const addRes = await runCommand(['git', 'worktree', 'add', '-b', branch, path, baseSha], {
+    cwd: config.repoRoot,
+    repoRoot: config.repoRoot,
+    timeoutMs: 60_000,
+  });
   if (!addRes.ok) {
     throw new WorktreeError(`git worktree add feilet: ${addRes.stderr.slice(0, 500)}`);
   }
 
-  return { path, branch };
+  return { path, branch, baseSha };
 }
 
 export async function removeWorktree(

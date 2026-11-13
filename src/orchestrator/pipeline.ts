@@ -13,6 +13,11 @@ import { needsSecondaryReview, secondaryReviewCode } from './secondaryReviewer.j
 import { runVerify } from './verifier.js';
 import { createTaskPullRequest } from './pr.js';
 import { TaskStore } from './taskStore.js';
+import {
+  assertDiffWithinScope,
+  ScopeInspectionError,
+  ScopeViolationError,
+} from '../security/scope.js';
 import type { OrchestratorConfig } from '../config.js';
 import type {
   ReviewResult,
@@ -25,6 +30,27 @@ import type {
 } from '../types.js';
 
 export class TaskCancelledError extends Error {}
+
+/**
+ * Scope-vakten stoppet oppgaven. Ikke et vanlig mislykket forsøk: en implementerer
+ * som skriver utenfor scope får ikke nye forsøk, og ingenting pushes.
+ */
+class ScopeAbortError extends Error {}
+
+function isScopeError(err: unknown): err is ScopeViolationError | ScopeInspectionError {
+  return err instanceof ScopeViolationError || err instanceof ScopeInspectionError;
+}
+
+function scopeAuditData(err: ScopeViolationError | ScopeInspectionError): Record<string, unknown> {
+  return {
+    error: err.name,
+    reason: err.message,
+    violations:
+      err instanceof ScopeViolationError
+        ? err.violations.map((v) => ({ path: v.path, rule: v.rule }))
+        : [],
+  };
+}
 
 export interface RunTaskOptions {
   /** Kjør alt fram til (men ikke inkludert) faktisk implementering — verifiserer at
@@ -265,6 +291,24 @@ export async function runTask(
               2000
             );
         } else {
+          // Scope-vakt: den faktiske diffen (ikke planen) mot allowedPaths/disallowedPaths
+          // før noen gjennomgang. Kjøres for hvert forsøk, også etter korrigeringer.
+          try {
+            const scope = await assertDiffWithinScope(config, contract, worktree);
+            audit.record('scope_check_passed', contract.id, {
+              attempt: attemptNum,
+              files: scope.files.length,
+            });
+          } catch (err) {
+            if (!isScopeError(err)) throw err;
+            audit.record('scope_violation', contract.id, {
+              attempt: attemptNum,
+              stage: 'after_implementation',
+              ...scopeAuditData(err),
+            });
+            throw new ScopeAbortError(`Scope-vakt: ${err.message}`);
+          }
+
           checkCancelled(store, state);
           setPhase('reviewing');
           review = await reviewCode(config, contract, plan, worktree.path);
@@ -312,6 +356,15 @@ export async function runTask(
         }
       } catch (err) {
         if (err instanceof TaskCancelledError) throw err;
+        if (err instanceof ScopeAbortError) {
+          attempt.failureReason = err.message.slice(0, 4000);
+          attempt.finishedAt = nowIso();
+          await removeWorktree(config, worktree).catch(() => undefined);
+          await deleteLocalBranch(config, worktree.branch).catch(() => undefined);
+          setPhase('failed');
+          audit.record('task_failed', contract.id, { reason: attempt.failureReason });
+          return state;
+        }
         implFailure = implFailure ?? message(err);
       }
 
@@ -356,8 +409,21 @@ export async function runTask(
       setPhase('pr_created');
       audit.record('pr_created', contract.id, { url: pr.htmlUrl, number: pr.number });
     } catch (err) {
-      setPhase('completed');
-      audit.record('pr_creation_skipped', contract.id, { reason: message(err) });
+      if (isScopeError(err)) {
+        // Brudd oppdaget rett før push: ingenting er pushet, oppgaven feiler.
+        successAttempt.failureReason = `Scope-vakt før push: ${err.message}`.slice(0, 4000);
+        audit.record('scope_violation', contract.id, {
+          attempt: successAttempt.attempt,
+          stage: 'before_push',
+          ...scopeAuditData(err),
+        });
+        await deleteLocalBranch(config, successWorktree.branch).catch(() => undefined);
+        setPhase('failed');
+        audit.record('task_failed', contract.id, { reason: successAttempt.failureReason });
+      } else {
+        setPhase('completed');
+        audit.record('pr_creation_skipped', contract.id, { reason: message(err) });
+      }
     } finally {
       await removeWorktree(config, successWorktree).catch(() => undefined);
     }

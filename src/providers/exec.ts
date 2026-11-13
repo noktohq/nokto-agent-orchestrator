@@ -1,6 +1,10 @@
 import { spawn } from 'node:child_process';
 import type { ProviderInvocationResult } from '../types.js';
-import { assertCommandAllowed, type CommandContext } from '../security/allowlist.js';
+import {
+  assertCommandAllowed,
+  type CommandContext,
+  type PushPolicy,
+} from '../security/allowlist.js';
 
 export interface RunOptions {
   cwd: string;
@@ -9,11 +13,14 @@ export interface RunOptions {
   env?: NodeJS.ProcessEnv;
   input?: string;
   readOnly?: boolean;
+  /** Push-regler (beskyttede grener, grenprefiks) for `git push`. Se PushPolicy. */
+  pushPolicy?: PushPolicy;
   /** Skip allowlist-sjekk — brukes kun for provider-binærer (claude/codex) som ikke er git/pnpm/etc. */
   skipAllowlist?: boolean;
 }
 
-const MAX_CAPTURE_BYTES = 2_000_000;
+/** Øvre grense for fanget stdout/stderr per kommando (tegn). Output nær grensen kan være avkortet. */
+export const MAX_CAPTURE_BYTES = 2_000_000;
 
 /**
  * Trygg prosess-spawn. Kjører alltid som argv-array (aldri shell:true), håndhever
@@ -29,6 +36,7 @@ export async function runCommand(
       cwd: opts.cwd,
       repoRoot: opts.repoRoot,
       ...(opts.readOnly !== undefined ? { readOnly: opts.readOnly } : {}),
+      ...(opts.pushPolicy !== undefined ? { pushPolicy: opts.pushPolicy } : {}),
     };
     assertCommandAllowed(argv, ctx);
   }
