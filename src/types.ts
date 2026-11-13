@@ -3,6 +3,11 @@ import { z } from 'zod';
 /**
  * Oppgavekontrakt — enkelt kilde til sannhet for hva en agent-kjøring skal gjøre.
  * Lastes fra YAML (tasks/*.yaml) og valideres strengt før noe kjøres.
+ *
+ * `.prefault({})` (zod 4) på constraints/git/metadata: et manglende objekt parses
+ * som `{}`, slik at feltstandardene inni (maxRetries, baseBranch, labels …) fylles
+ * inn. Det er samme oppførsel som `.default({})` hadde i zod 3. I zod 4 returnerer
+ * `.default({})` verdien uten å parse den, og standardene inni ville falt bort.
  */
 export const taskContractSchema = z.object({
   id: z
@@ -42,19 +47,19 @@ export const taskContractSchema = z.object({
         .min(1)
         .default(['codex', 'gemini']),
     })
-    .default({}),
+    .prefault({}),
   git: z
     .object({
       baseBranch: z.string().min(1).default('main'),
       branchPrefix: z.string().min(1).default('agent/'),
     })
-    .default({}),
+    .prefault({}),
   metadata: z
     .object({
       createdBy: z.string().optional(),
       labels: z.array(z.string()).default([]),
     })
-    .default({}),
+    .prefault({}),
 });
 
 export type TaskContract = z.infer<typeof taskContractSchema>;
